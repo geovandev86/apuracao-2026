@@ -66,6 +66,12 @@ const servidor = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/mapa-brasil.json') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'max-age=3600' });
+    fs.createReadStream(path.join(__dirname, 'mapa-brasil.json')).pipe(res);
+    return;
+  }
+
   if (url.pathname.startsWith('/tse/')) {
     const caminho = url.pathname.slice(5);
     if (!/^oficial\/[\w\-./]+$/.test(caminho) || caminho.includes('..')) {

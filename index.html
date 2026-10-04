@@ -250,6 +250,32 @@
   }
   .mLogos { display: flex; gap: .5em; }
   .mLogos img { width: 2.3em; height: 2.3em; border: .1em solid #fff; }
+
+  /* Mapa do Brasil: cada estado pintado com a cor de quem lidera para presidente. */
+  .mapaGrade { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .mapaGrade { grid-template-columns: minmax(0, 1fr); } }
+  .mapaSVG { display: block; width: 100%; height: auto; max-height: 660px; }
+  .mapaSVG path { fill: var(--trilho); stroke: var(--cartao); stroke-width: 1.5; stroke-linejoin: round; cursor: pointer; transition: fill .4s, fill-opacity .4s; }
+  .mapaSVG path:hover { filter: brightness(1.25); }
+  .mapaSVG path.feito { stroke: var(--texto); stroke-width: 3.5; }
+  .mapaSVG path.sel { stroke: #ffd500; stroke-width: 6; }
+  .mapaSVG text { font: 700 21px "Segoe UI", system-ui, sans-serif; fill: #fff; stroke: rgba(0, 0, 0, .8); stroke-width: 4.5; paint-order: stroke; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  .mapaSVG line { stroke: var(--suave); stroke-width: 1.5; pointer-events: none; }
+  #mapaDetalhe { display: grid; gap: 10px; }
+  #mapaDetalhe h4 { margin: 4px 0 0; font-size: 14px; color: var(--suave); }
+  .mdLinha { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; }
+  .mdLinha .ponto { margin: 0; }
+  .mdNome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mdNum { text-align: right; font-variant-numeric: tabular-nums; }
+  .mdNum b { font-size: 17px; color: color-mix(in srgb, var(--cor) 65%, var(--texto)); }
+  .mdLinha .barra { grid-column: 1 / -1; height: 9px; margin: 0; }
+  .mapaLegenda { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; color: var(--suave); font-size: 13px; }
+  .mapaLegenda b { color: var(--texto); }
+  .mMapa { flex: 1; min-height: 0; display: flex; justify-content: center; }
+  .mMapa .mapaSVG { width: auto; height: 100%; max-height: none; }
+  .mMapa .mapaSVG path { stroke: var(--cartao); cursor: inherit; }
+  .mMapa .mapaSVG path.feito { stroke: #fff; }
+  .mPainel .mapaLegenda { margin-top: .5em; font-size: .9em; justify-content: center; }
 </style>
 </head>
 <body>
@@ -305,6 +331,20 @@
 
   <section class="larga">
     <div class="cab">
+      <h2>Mapa · presidente por estado</h2>
+      <span class="espaco"></span>
+      <label class="meta"><input type="checkbox" id="mapaSoFeitos"> só estados com apuração concluída</label>
+      <select id="mapaUF" title="Estado em destaque"></select>
+    </div>
+    <div class="mapaGrade">
+      <div id="mapa"><p class="aviso">Carregando o mapa…</p></div>
+      <div id="mapaDetalhe"></div>
+    </div>
+    <div id="mapaLegenda" class="mapaLegenda"></div>
+  </section>
+
+  <section class="larga">
+    <div class="cab">
       <h2>Presidente por estado</h2>
       <span class="meta">clique em um estado para ver o detalhe</span>
     </div>
@@ -339,7 +379,7 @@
 
 <script>
 // Trocar a cada publicação: é o que faz as páginas já abertas recarregarem sozinhas, sem F5.
-const VERSAO = '2026-10-04 19:20';
+const VERSAO = '2026-10-04 19:50';
 const CICLO = 'ele2026';
 // No computador (localhost) as consultas passam pelo server.js; publicada na internet, a página fala direto com o TSE.
 const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -385,6 +425,7 @@ const S = {
   presAbr: ler('presAbr', 'br'),
   presMun: ler('presMun', ''),
   estUF: ler('estUF', 'sp'),
+  mapaUF: ler('mapaUF', ''),
   estCargo: ler('estCargo', '3'),
   intervalo: Number(ler('intervalo', '30')),
 };
@@ -567,9 +608,95 @@ async function carregarUFs() {
       <td>${temVoto ? milhar(d.v?.vv) : '—'}</td>
     </tr>`;
   }).join('');
+  renderMapa();
   $('ufs').innerHTML = `<table>
     <thead><tr><th>Estado</th><th>Seções totalizadas</th><th>1º colocado</th><th>2º colocado</th><th>Votos válidos</th></tr></thead>
     <tbody>${linhas}</tbody></table>`;
+}
+
+// ---- Mapa do Brasil: contorno dos estados (IBGE) pintado com a cor de quem lidera para presidente em cada um.
+let MAPA = null;
+let mapaSoFeitos = false;
+// Estados pequenos demais para o rótulo caber dentro: a sigla vai para o lado, ligada por um traço.
+const ROTULO_FORA = { rn: [52, -12], pb: [66, 0], pe: [92, 8], al: [50, 12], se: [40, 20], es: [42, 0], rj: [34, 30], df: [30, -16] };
+
+function estadoMapa(uf) {
+  const d = dadosUFs[uf];
+  const lista = d ? candidatos(d) : [];
+  const pst = num(d?.s?.pst);
+  return { d, lista, pst, lider: lista[0] && num(lista[0].vap) > 0 ? lista[0] : null, feito: !!d && (d.tf === 's' || pst >= 100) };
+}
+
+function mapaSVG(selecionado, soFeitos) {
+  if (!MAPA) return '';
+  const formas = [];
+  let rotulos = '';
+  for (const [uf, f] of Object.entries(MAPA.ufs)) {
+    const e = estadoMapa(uf);
+    const pinta = e.lider && (!soFeitos || e.feito);
+    // Quanto mais seções apuradas, mais forte a cor.
+    const estilo = pinta ? `fill:${corDe(e.lider)};fill-opacity:${(0.35 + 0.65 * e.pst / 100).toFixed(2)}` : '';
+    const dica = `${UFS[uf]}: ${e.lider ? `${e.lider.nmu} ${e.lider.pvap}%` : 'sem votos'} · ${e.d?.s?.pst ?? '0,00'}% das seções`;
+    formas.push({ ordem: uf === selecionado ? 2 : e.feito ? 1 : 0,
+      svg: `<path data-uf="${uf}" class="${e.feito ? 'feito' : ''}${uf === selecionado ? ' sel' : ''}" style="${estilo}" d="${f.d}"><title>${esc(dica)}</title></path>` });
+    const [dx, dy] = ROTULO_FORA[uf] ?? [0, 0];
+    if (dx || dy) rotulos += `<line x1="${f.cx}" y1="${f.cy}" x2="${f.cx + dx - Math.sign(dx) * 20}" y2="${f.cy + dy}"/>`;
+    rotulos += `<text x="${f.cx + dx}" y="${f.cy + dy}">${uf.toUpperCase()}</text>`;
+  }
+  // O estado em destaque e os concluídos são desenhados por último, para o contorno ficar por cima dos vizinhos.
+  formas.sort((a, b) => a.ordem - b.ordem);
+  return `<svg class="mapaSVG" viewBox="-12 -12 ${MAPA.largura + 110} ${MAPA.altura + 24}" role="img" aria-label="Mapa do Brasil com quem lidera para presidente em cada estado">${formas.map((f) => f.svg).join('')}${rotulos}</svg>`;
+}
+
+function mapaLegendaHTML(completa) {
+  const lideres = new Map();
+  const feitos = [];
+  for (const uf of Object.keys(MAPA.ufs)) {
+    const e = estadoMapa(uf);
+    if (e.feito) feitos.push(uf.toUpperCase());
+    if (e.lider) lideres.set(e.lider.sqcand, { c: e.lider, n: (lideres.get(e.lider.sqcand)?.n ?? 0) + 1 });
+  }
+  const itens = [...lideres.values()].sort((a, b) => b.n - a.n).map(({ c, n }) =>
+    `<span><i class="ponto${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}"></i><b>${esc(c.nmu)}</b> lidera em ${n} ${n === 1 ? 'estado' : 'estados'}</span>`);
+  itens.push(`<span>Apuração concluída em <b>${feitos.length} de 27</b> estados${feitos.length ? ': ' + feitos.sort().join(', ') : ''}</span>`);
+  if (completa) itens.push('<span>Cor mais forte = mais seções apuradas · contorno claro = apuração concluída · cinza = sem votos</span>');
+  return itens.join('');
+}
+
+function mapaDetalheHTML(uf) {
+  const e = estadoMapa(uf);
+  const situacao = e.feito ? 'Apuração concluída' : e.pst > 0 ? `Parcial · ${esc(e.d.s.pst)}% das seções` : 'Sem votos ainda';
+  const linhas = (lista, quantos) => lista.slice(0, quantos).map((c) => `<div class="mdLinha${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}">
+      <i class="ponto${naBandeira(c) ? ' bandeira' : ''}"></i>
+      <span class="mdNome"><b>${esc(c.nmu)}</b> <span class="partido">${esc(c.sg)}</span>${c.st ? `<span class="selo">${esc(c.st)}</span>` : ''}</span>
+      <span class="mdNum"><b>${esc(c.pvap)}%</b> <span class="partido">${milhar(c.vap)} votos</span></span>
+      <div class="barra"><i style="width:${Math.min(num(c.pvap), 100)}%"></i></div>
+    </div>`).join('');
+  const semVoto = '<p class="nota" style="margin:0">Nenhum voto totalizado ainda.</p>';
+  const gov = dadosGov[uf] ? candidatos(dadosGov[uf]) : [];
+  const govPst = dadosGov[uf]?.s?.pst;
+  return `<div class="rCab"><h3 style="flex:1;margin:0">${UFS[uf]}</h3><span class="rSit${e.feito ? ' final' : ''}">${situacao}</span></div>
+    <h4>Presidente</h4>${e.lider ? linhas(e.lista, 3) : semVoto}
+    <h4>Governador${govPst ? ` · ${esc(govPst)}% das seções` : ''}</h4>${gov[0] && num(gov[0].vap) > 0 ? linhas(gov, 2) : semVoto}
+    <div><button type="button" data-abrir="${uf}">Ver ${UFS[uf]} completo no painel</button></div>`;
+}
+
+function renderMapa() {
+  if (!MAPA) return;
+  if (!MAPA.ufs[S.mapaUF]) S.mapaUF = MAPA.ufs[S.estUF] ? S.estUF : 'sp';
+  $('mapaUF').value = S.mapaUF;
+  $('mapa').innerHTML = mapaSVG(S.mapaUF, mapaSoFeitos);
+  $('mapaDetalhe').innerHTML = mapaDetalheHTML(S.mapaUF);
+  $('mapaLegenda').innerHTML = mapaLegendaHTML(true);
+}
+
+async function carregarMapa() {
+  try {
+    MAPA = await getJSON('mapa-brasil.json');
+    renderMapa();
+  } catch {
+    $('mapa').innerHTML = '<p class="aviso falha">Não foi possível carregar o desenho do mapa.</p>';
+  }
 }
 
 function idade(nascimento) {
@@ -696,6 +823,7 @@ function mCargoHTML(d, ele, fotoAbr, quantos, majoritario) {
 function mQuadros() {
   const t = TURNOS[S.turno];
   const quadros = [];
+  if (MAPA) quadros.push({ titulo: 'Mapa · quem lidera em cada estado', html: `<div class="mMapa">${mapaSVG(null, false)}</div><div class="mapaLegenda">${mapaLegendaHTML(false)}</div>` });
   const siglas = Object.keys(UFS).filter((uf) => dadosUFs[uf]);
   for (let i = 0; i < siglas.length; i += 10) {
     const linhas = siglas.slice(i, i + 10).map((uf) => {
@@ -983,6 +1111,7 @@ function atualizar() {
   return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs(), carregarMonitor(), carregarGovernadores()]).then(() => {
     if ($('ficha').open) mostrarFicha();
     if ($('resultado').open) abrirResultado();
+    renderMapa();
     renderMonitor();
     avisarEleitos();
   });
@@ -1020,6 +1149,23 @@ function montarControles() {
   $('agora').addEventListener('click', atualizar);
   $('abrirMonitor').addEventListener('click', () => abrirMonitor(true));
   $('abrirResultado').addEventListener('click', abrirResultado);
+  $('mapaUF').innerHTML = ufs.filter(([cd]) => cd !== 'zz').map(([cd, nm]) => `<option value="${cd}">${nm}</option>`).join('');
+  const destacar = (uf) => { S.mapaUF = uf; gravar('mapaUF', uf); renderMapa(); };
+  $('mapaUF').addEventListener('change', (ev) => destacar(ev.target.value));
+  $('mapaSoFeitos').addEventListener('change', (ev) => { mapaSoFeitos = ev.target.checked; renderMapa(); });
+  $('mapa').addEventListener('click', (ev) => {
+    const uf = ev.target.closest('path[data-uf]')?.dataset.uf;
+    if (uf) destacar(uf);
+  });
+  $('mapaDetalhe').addEventListener('click', (ev) => {
+    const uf = ev.target.closest('[data-abrir]')?.dataset.abrir;
+    if (!uf) return;
+    $('estUF').value = uf;
+    $('estUF').dispatchEvent(new Event('change'));
+    $('presAbr').value = uf;
+    $('presAbr').dispatchEvent(new Event('change'));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
   $('resultado').addEventListener('click', (ev) => {
     if (ev.target === $('resultado') || ev.target.closest('[data-fechar]')) { $('resultado').close(); return; }
     const aba = ev.target.closest('[data-aba]')?.dataset.aba;
@@ -1093,6 +1239,7 @@ async function conferirVersao() {
 
 montarControles();
 preencherMunicipios().then(atualizar);
+carregarMapa();
 setInterval(conferirVersao, 60000);
 if (location.hash === '#monitor') abrirMonitor(false);
 setInterval(() => {
