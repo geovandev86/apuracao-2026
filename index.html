@@ -89,7 +89,8 @@
   .c2 { font-weight: 600; }
   button.nome { border: 0; background: none; padding: 0; color: inherit; font-weight: 700; text-align: left; cursor: pointer; }
   button.nome:hover { text-decoration: underline; }
-  .cand .foto { cursor: pointer; }
+  .cand { cursor: pointer; }
+  .cand:hover { background: color-mix(in srgb, var(--cor) 9%, transparent); }
   dialog { border: 0; padding: 0; border-radius: 14px; background: var(--cartao); color: var(--texto); width: min(580px, calc(100% - 24px)); max-height: calc(100% - 32px); box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
   dialog::backdrop { background: rgba(0, 0, 0, .6); }
   .fTopo { display: flex; gap: 14px; align-items: center; padding: 16px; border-top: 7px solid var(--cor); background: color-mix(in srgb, var(--cor) 14%, var(--cartao)); }
@@ -110,9 +111,22 @@
   .fDados dt { color: var(--suave); font-size: 13px; }
   .fDados dd { margin: 0; }
   .fVice { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-  .fVice img { width: 32px; height: 40px; object-fit: cover; border-radius: 5px; background: var(--trilho); }
+  .fVice img { flex: none; width: 32px; height: 40px; object-fit: cover; border-radius: 5px; background: var(--trilho); }
   .fCorpo tbody tr { cursor: default; }
   .fCorpo a { color: color-mix(in srgb, var(--lider) 80%, var(--texto)); }
+  /* Celular: o topo deixa de ficar preso na tela e a ficha ganha mais espaço para o texto. */
+  @media (max-width: 600px) {
+    header { position: static; }
+    main { padding: 10px; gap: 10px; }
+    section { padding: 12px; }
+    dialog { width: calc(100% - 16px); max-height: calc(100% - 16px); }
+    .fTopo { padding: 12px; gap: 10px; }
+    .fTopo .foto { width: 68px; height: 84px; }
+    .fTopo h3 { font-size: 18px; }
+    .fCorpo { padding: 12px; }
+    .fNums strong { font-size: 16px; }
+    .fDados > div { grid-template-columns: 84px minmax(0, 1fr); }
+  }
 </style>
 </head>
 <body>
@@ -523,7 +537,6 @@ function montarControles() {
   $('agora').addEventListener('click', atualizar);
   for (const origem of ['pres', 'est']) {
     $(origem).addEventListener('click', (ev) => {
-      if (!ev.target.closest('.nome, .foto')) return;
       const sq = ev.target.closest('.cand')?.dataset.sq;
       if (!sq) return;
       ficha = { origem, sq };
