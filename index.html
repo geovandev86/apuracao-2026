@@ -87,6 +87,32 @@
   .cand.frente.bandeira { box-shadow: none; background: linear-gradient(180deg, var(--faixas)) left / 5px 100% no-repeat, color-mix(in srgb, var(--cor) 16%, transparent); }
   .c1 { font-weight: 700; }
   .c2 { font-weight: 600; }
+  button.nome { border: 0; background: none; padding: 0; color: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+  button.nome:hover { text-decoration: underline; }
+  .cand .foto { cursor: pointer; }
+  dialog { border: 0; padding: 0; border-radius: 14px; background: var(--cartao); color: var(--texto); width: min(580px, calc(100% - 24px)); max-height: calc(100% - 32px); box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+  dialog::backdrop { background: rgba(0, 0, 0, .6); }
+  .fTopo { display: flex; gap: 14px; align-items: center; padding: 16px; border-top: 7px solid var(--cor); background: color-mix(in srgb, var(--cor) 14%, var(--cartao)); }
+  .fTopo.bandeira { border-image: linear-gradient(90deg, var(--faixas)) 1; }
+  .fTopo .foto { width: 84px; height: 104px; flex: none; }
+  .fTopo > div { flex: 1; min-width: 0; }
+  .fTopo h3 { margin: 0; font-size: 21px; }
+  .fTopo .selo { margin: 6px 0 0; display: inline-block; }
+  .fFechar { align-self: flex-start; flex: none; width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+  .fCorpo { display: grid; gap: 14px; padding: 14px 16px 16px; }
+  .fCorpo h4 { margin: 0; font-size: 14px; }
+  .fNums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .fNums div { background: var(--fundo); border-radius: 8px; padding: 8px 10px; }
+  .fNums span { display: block; color: var(--suave); font-size: 12px; }
+  .fNums strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+  .fDados { display: grid; gap: 8px; margin: 0; }
+  .fDados > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; }
+  .fDados dt { color: var(--suave); font-size: 13px; }
+  .fDados dd { margin: 0; }
+  .fVice { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .fVice img { width: 32px; height: 40px; object-fit: cover; border-radius: 5px; background: var(--trilho); }
+  .fCorpo tbody tr { cursor: default; }
+  .fCorpo a { color: color-mix(in srgb, var(--lider) 80%, var(--texto)); }
 </style>
 </head>
 <body>
@@ -141,6 +167,8 @@
     <div id="ufs" class="rolagem"><p class="aviso">Carregando…</p></div>
   </section>
 </main>
+
+<dialog id="ficha" aria-label="Dados do candidato"><div id="fichaCorpo"></div></dialog>
 
 <script>
 const CICLO = 'ele2026';
@@ -207,9 +235,11 @@ async function getJSON(url) {
 
 function candidatos(d) {
   const lista = [];
+  const feds = Object.fromEntries((d.carg?.[0]?.fed ?? []).map((f) => [f.n, f]));
   for (const agr of d.carg?.[0]?.agr ?? []) {
     for (const par of agr.par ?? []) {
-      for (const c of par.cand ?? []) lista.push({ ...c, sg: par.sg, vice: c.vs?.[0]?.nmu, cargo: String(d.carg[0].cd) });
+      for (const c of par.cand ?? []) lista.push({ ...c, sg: par.sg, partido: par.nm, agr: agr.nm, agrTipo: agr.tp, agrPartidos: agr.com, federacao: feds[par.nfed],
+        vice: c.vs?.[0]?.nmu, cargo: String(d.carg[0].cd), cargoNome: d.carg[0].nmn });
     }
   }
   return lista.sort((a, b) => num(b.vap) - num(a.vap) || num(a.seq) - num(b.seq));
@@ -235,7 +265,13 @@ function resumo(d) {
     </div>`;
 }
 
-// opcoes: { ele, fotoAbr, majoritario (barra em % absoluto com marca de 50%), semVice, filtro, limite }
+// Guarda os candidatos e as opções de cada lista ('pres' e 'est') para abrir a ficha ao clicar no nome.
+const REG = {};
+const INFO = {};
+const dadosUFs = {};
+let ficha = null; // { origem, sq }
+
+// opcoes: { origem, ele, fotoAbr, majoritario (barra em % absoluto com marca de 50%), semVice, filtro, limite }
 function listaHTML(d, opcoes) {
   const cargo = d.carg?.[0] ?? {};
   let lista = candidatos(d);
@@ -245,6 +281,8 @@ function listaHTML(d, opcoes) {
   const temVoto = lista.some((c) => num(c.vap) > 0);
   const maior = Math.max(...lista.map((c) => num(c.pvap)), 0.0001);
   lista.forEach((c, i) => { c.pos = i + 1; });
+  REG[opcoes.origem] = new Map(lista.map((c) => [c.sqcand, c]));
+  INFO[opcoes.origem] = opcoes;
   if (opcoes.filtro) {
     const f = opcoes.filtro.toLowerCase();
     lista = lista.filter((c) => `${c.nmu} ${c.nm} ${c.sg} ${c.n}`.toLowerCase().includes(f));
@@ -256,10 +294,10 @@ function listaHTML(d, opcoes) {
     const largura = opcoes.majoritario ? num(c.pvap) : (num(c.pvap) / maior) * 100;
     const classe = (temVoto && c.pos <= destaque ? ' frente' : '') + (naBandeira(c) ? ' bandeira' : '');
     const selo = c.st ? `<span class="selo">${esc(c.st)}</span>` : '';
-    return `<li class="cand${classe}" style="--cor:${corDe(c)}">
+    return `<li class="cand${classe}" data-sq="${esc(c.sqcand)}" style="--cor:${corDe(c)}">
       <img class="foto" loading="lazy" alt="" src="${TSE}oficial/${CICLO}/${opcoes.ele}/fotos/${opcoes.fotoAbr}/${esc(c.sqcand)}.jpeg" onerror="this.style.visibility='hidden'">
       <div>
-        <div><span class="nome">${esc(c.nmu)}</span>${selo}</div>
+        <div><button type="button" class="nome" title="Ver dados do candidato">${esc(c.nmu)}</button>${selo}</div>
         <div class="partido">${esc(c.n)} · ${esc(c.sg)}${c.vice && !opcoes.semVice ? ' · vice ' + esc(c.vice) : ''}</div>
         <div class="barra"><i style="width:${Math.min(largura, 100)}%"></i>${opcoes.majoritario ? '<b></b>' : ''}</div>
       </div>
@@ -293,7 +331,7 @@ async function carregarPresidente() {
   try {
     const brasil = getJSON(urlDados(ele, 'br', 1));
     const d = noBrasil ? await brasil : await getJSON(urlDados(ele, S.presAbr, 1, S.presMun));
-    $('pres').innerHTML = listaHTML(d, { ele, fotoAbr: 'br', majoritario: true, semVice: true });
+    $('pres').innerHTML = listaHTML(d, { origem: 'pres', ele, fotoAbr: 'br', majoritario: true, semVice: true });
     atualizarStatus(await brasil);
   } catch (e) {
     $('pres').innerHTML = mensagemErro(e);
@@ -305,6 +343,7 @@ function mostrarEstado() {
   if (!dadosEstado) return;
   const deputados = Number(S.estCargo) >= 6;
   $('est').innerHTML = listaHTML(dadosEstado, {
+    origem: 'est',
     ele: TURNOS[S.turno].est,
     fotoAbr: S.estUF,
     majoritario: S.estCargo === '3',
@@ -333,6 +372,7 @@ async function carregarUFs() {
     $('ufs').innerHTML = mensagemErro(respostas[0].reason);
     return;
   }
+  siglas.forEach((uf, i) => { dadosUFs[uf] = respostas[i].status === 'fulfilled' ? respostas[i].value : null; });
   const linhas = siglas.map((uf, i) => {
     if (respostas[i].status === 'rejected') return `<tr data-uf="${uf}"><td>${UFS[uf]}</td><td colspan="4" class="meta">sem dados</td></tr>`;
     const d = respostas[i].value;
@@ -350,6 +390,81 @@ async function carregarUFs() {
   $('ufs').innerHTML = `<table>
     <thead><tr><th>Estado</th><th>Seções totalizadas</th><th>1º colocado</th><th>2º colocado</th><th>Votos válidos</th></tr></thead>
     <tbody>${linhas}</tbody></table>`;
+}
+
+function idade(nascimento) {
+  const [dia, mes, ano] = String(nascimento || '').split('/').map(Number);
+  if (!ano) return '';
+  const hoje = new Date();
+  const fezAniversario = hoje.getMonth() + 1 > mes || (hoje.getMonth() + 1 === mes && hoje.getDate() >= dia);
+  return hoje.getFullYear() - ano - (fezAniversario ? 0 : 1);
+}
+
+function fichaHTML() {
+  const c = REG[ficha.origem]?.get(ficha.sq);
+  const fechar = '<button type="button" class="fFechar" data-fechar aria-label="Fechar">✕</button>';
+  if (!c) return `<div class="fTopo" style="--cor:var(--suave)"><div>Este candidato não aparece na consulta atual.</div>${fechar}</div>`;
+  const op = INFO[ficha.origem];
+  const foto = (sq) => `${TSE}oficial/${CICLO}/${op.ele}/fotos/${op.fotoAbr}/${esc(sq)}.jpeg`;
+  const linha = (rotulo, valor) => (valor ? `<div><dt>${rotulo}</dt><dd>${valor}</dd></div>` : '');
+  const local = ficha.origem === 'est' ? UFS[S.estUF]
+    : $('presAbr').selectedOptions[0].text + (S.presMun ? ' · ' + $('presMun').selectedOptions[0].text : '');
+  const anos = idade(c.dt);
+  const chapa = (c.vs ?? []).map((v) => `<div class="fVice">
+      <img alt="" loading="lazy" src="${foto(v.sqcand)}" onerror="this.style.visibility='hidden'">
+      <span><strong>${esc(v.nmu)}</strong> (${esc(v.sgp)})<br><span class="partido">${v.tp === 'v' ? 'Vice' : 'Suplente'} · ${esc(v.nm)}</span></span>
+    </div>`).join('');
+
+  let porEstado = '';
+  if (ficha.origem === 'pres') {
+    const linhas = Object.keys(UFS).map((uf) => {
+      const lista = dadosUFs[uf] ? candidatos(dadosUFs[uf]) : [];
+      const i = lista.findIndex((x) => x.sqcand === c.sqcand);
+      return i < 0 ? null : { uf, pos: i + 1, vap: lista[i].vap, pvap: lista[i].pvap };
+    }).filter((l) => l && num(l.vap) > 0).sort((a, b) => num(b.pvap) - num(a.pvap));
+    porEstado = '<h4>Votação por estado</h4>' + (linhas.length
+      ? `<div class="rolagem"><table><thead><tr><th>Estado</th><th>Posição</th><th>% dos válidos</th><th>Votos</th></tr></thead><tbody>${
+          linhas.map((l) => `<tr><td>${UFS[l.uf]}</td><td>${l.pos}º</td><td>${esc(l.pvap)}%</td><td>${milhar(l.vap)}</td></tr>`).join('')
+        }</tbody></table></div>`
+      : '<p class="nota" style="margin:0">Aparece aqui assim que a apuração começar.</p>');
+  }
+
+  return `<div class="fTopo${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}">
+      <img class="foto" alt="" src="${foto(c.sqcand)}" onerror="this.style.visibility='hidden'">
+      <div>
+        <h3>${esc(c.nmu)}</h3>
+        <div class="partido">${esc(c.nm)}</div>
+        ${c.st ? `<span class="selo">${esc(c.st)}</span>` : ''}
+      </div>
+      ${fechar}
+    </div>
+    <div class="fCorpo">
+      <div class="fNums">
+        <div><span>Posição em ${esc(local)}</span><strong>${num(c.vap) > 0 ? c.pos + 'º' : '—'}</strong></div>
+        <div><span>Votos</span><strong>${milhar(c.vap)}</strong></div>
+        <div><span>% dos válidos</span><strong>${esc(c.pvap)}%</strong></div>
+      </div>
+      <dl class="fDados">
+        ${linha('Cargo', esc(c.cargoNome))}
+        ${linha('Número', esc(c.n))}
+        ${linha('Partido', `${esc(c.sg)} · ${esc(c.partido)}`)}
+        ${linha('Federação', c.federacao ? `${esc(c.federacao.nm)} (${esc(c.federacao.com)})` : '')}
+        ${linha('Coligação', c.agrTipo === 'c' ? `${esc(c.agr)}<br><span class="partido">${esc(c.agrPartidos)}</span>` : 'Sem coligação')}
+        ${linha('Nascimento', c.dt ? `${esc(c.dt)}${anos === '' ? '' : ` · ${anos} anos`}` : '')}
+        ${linha((c.vs ?? []).some((v) => v.tp !== 'v') ? 'Suplentes' : 'Vice', chapa)}
+      </dl>
+      ${porEstado}
+      <p class="nota" style="margin:0">Dados do arquivo oficial de resultados do TSE. Bens declarados, profissão e escolaridade estão no
+        <a href="https://divulgacandcontas.tse.jus.br/" target="_blank" rel="noopener">DivulgaCandContas</a>, o cadastro de candidaturas do TSE.</p>
+    </div>`;
+}
+
+function mostrarFicha() {
+  const janela = $('ficha');
+  const rolagem = janela.scrollTop;
+  $('fichaCorpo').innerHTML = fichaHTML();
+  if (!janela.open) janela.showModal();
+  else janela.scrollTop = rolagem;
 }
 
 async function preencherMunicipios() {
@@ -371,7 +486,9 @@ async function preencherMunicipios() {
 
 function atualizar() {
   falta = S.intervalo;
-  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs()]);
+  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs()]).then(() => {
+    if ($('ficha').open) mostrarFicha();
+  });
 }
 
 function montarControles() {
@@ -404,6 +521,18 @@ function montarControles() {
   aoMudar('intervalo', 'intervalo', () => { S.intervalo = Number(S.intervalo); falta = S.intervalo; });
   $('busca').addEventListener('input', mostrarEstado);
   $('agora').addEventListener('click', atualizar);
+  for (const origem of ['pres', 'est']) {
+    $(origem).addEventListener('click', (ev) => {
+      if (!ev.target.closest('.nome, .foto')) return;
+      const sq = ev.target.closest('.cand')?.dataset.sq;
+      if (!sq) return;
+      ficha = { origem, sq };
+      mostrarFicha();
+    });
+  }
+  $('ficha').addEventListener('click', (ev) => {
+    if (ev.target === $('ficha') || ev.target.closest('[data-fechar]')) $('ficha').close();
+  });
   $('ufs').addEventListener('click', (ev) => {
     const uf = ev.target.closest('tr[data-uf]')?.dataset.uf;
     if (!uf) return;
