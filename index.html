@@ -127,6 +127,61 @@
     .fNums strong { font-size: 16px; }
     .fDados > div { grid-template-columns: 84px minmax(0, 1fr); }
   }
+
+  /* Modo monitor: uma tela só, sem rolagem, com tudo dimensionado pelo tamanho da tela (unidade em). */
+  #monitor { position: fixed; inset: 0; z-index: 50; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: .9em; padding: 1.1em 1.5em;
+    --fundo: #0a0c11; --cartao: #141821; --texto: #f3f5f9; --suave: #a7b1c0; --linha: #2a303b; --trilho: #252b36;
+    background: var(--fundo); color: var(--texto); font-size: min(1.2vw, 2.05vh); line-height: 1.25; cursor: none; }
+  #monitor[hidden] { display: none; }
+  #monitor.ativo { cursor: default; }
+  .mTopo { display: flex; align-items: center; gap: 1.2em; padding-bottom: .7em; border-bottom: .22em solid #ffd500; }
+  .mTitulo { font-size: 1.7em; font-weight: 800; letter-spacing: .02em; }
+  .mTopo .status { font-size: 1em; padding: .35em .9em; }
+  .mTopo .status:not(.andando):not(.fim) { background: #222936; }
+  .mTopo .status i { width: .75em; height: .75em; }
+  .mRelogio { font-size: 2em; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .mCorpo { display: grid; grid-template-columns: 1.35fr 1fr; gap: 1.1em; min-height: 0; }
+  .mPainel { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: .9em 1.1em; border-radius: 1em; background: var(--cartao); }
+  .mTit { display: flex; justify-content: space-between; align-items: center; gap: 1em; margin-bottom: .55em; font-size: 1.25em; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #ffd500; }
+  .mPontos { display: flex; gap: .4em; }
+  .mPontos i { width: .55em; height: .55em; border-radius: 50%; background: var(--trilho); }
+  .mPontos i.on { background: #ffd500; }
+  .mProg { display: flex; align-items: center; gap: .9em; margin-bottom: .7em; }
+  .mProg strong { font-size: 2.2em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .mProg span { color: var(--suave); font-size: .85em; line-height: 1.15; }
+  .mProg .progresso { flex: 1; height: 1em; margin: 0; }
+  .mLista { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-auto-rows: minmax(0, 1fr); gap: .45em; }
+  .mCand { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 1em; align-items: center; min-height: 0; padding: .25em .9em; border-radius: .7em;
+    background: color-mix(in srgb, var(--cor) 14%, transparent); box-shadow: inset .35em 0 0 var(--cor); }
+  .mCand.bandeira { box-shadow: none; background: linear-gradient(180deg, var(--faixas)) left / .35em 100% no-repeat, color-mix(in srgb, var(--cor) 14%, transparent); }
+  .mCand .foto { width: 3em; height: 3.6em; border-width: .16em; border-radius: .4em; }
+  .mCand.bandeira .foto { padding: .16em; }
+  .mNome { font-size: 1.45em; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mPart { margin-left: .6em; color: var(--suave); font-size: .65em; font-weight: 600; }
+  .mNome .selo { font-size: .5em; vertical-align: middle; }
+  .mCand .barra { height: .8em; margin-top: .35em; }
+  .mNum { text-align: right; font-variant-numeric: tabular-nums; }
+  .mNum strong { display: block; font-size: 2.1em; line-height: 1.05; color: color-mix(in srgb, var(--cor) 60%, #fff); }
+  .mNum span { color: var(--suave); font-size: .85em; }
+  .mUFs { flex: 1; min-height: 0; display: grid; grid-auto-rows: minmax(0, 1fr); }
+  .mUF { display: grid; grid-template-columns: 9.5em 4.6em minmax(0, 1fr) minmax(0, 1fr); gap: .8em; align-items: center; border-top: 1px solid var(--linha); font-size: 1.05em; font-variant-numeric: tabular-nums; }
+  .mUF > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mUF.mCab { border-top: 0; color: var(--suave); font-size: .85em; }
+  .mUF .ponto { width: .7em; height: .7em; margin-right: .4em; }
+  .mNumeros { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: .7em; }
+  .mNumeros div { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: .5em 1em; border-radius: .7em; border-left: .35em solid var(--cor); background: color-mix(in srgb, var(--cor) 14%, transparent); }
+  .mNumeros span { color: var(--suave); }
+  .mNumeros strong { font-size: 2em; line-height: 1.1; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--cor) 60%, #fff); }
+  .mNumeros small { color: var(--suave); font-size: .85em; font-variant-numeric: tabular-nums; }
+  .mRodape { display: flex; justify-content: space-between; gap: 1em; color: var(--suave); font-size: .9em; }
+  .mControles { position: absolute; left: 50%; bottom: .9em; transform: translateX(-50%); display: flex; gap: .6em; opacity: 0; pointer-events: none; transition: opacity .3s; }
+  #monitor.ativo .mControles { opacity: 1; pointer-events: auto; }
+  .mControles button { font-size: max(14px, 1em); color: #1a1a00; background: #ffd500; border-color: #ffd500; box-shadow: 0 .3em 1.2em rgba(0, 0, 0, .6); }
+  @media (orientation: portrait) {
+    #monitor { font-size: min(2.6vw, 1.4vh); padding: 1em; }
+    .mCorpo { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1.3fr 1fr; }
+    .mTitulo { font-size: 1.25em; }
+  }
 </style>
 </head>
 <body>
@@ -148,6 +203,7 @@
       <option value="120">a cada 2 min</option>
     </select>
     <button id="agora">Atualizar agora</button>
+    <button id="abrirMonitor" title="Tela cheia para deixar ligada numa TV ou monitor">Modo monitor</button>
   </div>
 </header>
 
@@ -181,6 +237,24 @@
     <div id="ufs" class="rolagem"><p class="aviso">Carregando…</p></div>
   </section>
 </main>
+
+<div id="monitor" hidden>
+  <div class="mTopo">
+    <span class="mTitulo">APURAÇÃO · ELEIÇÕES 2026 · <span id="mTurno">1º TURNO</span></span>
+    <span id="mStatus" class="status"><i></i><span>Carregando…</span></span>
+    <span class="espaco"></span>
+    <span id="mRelogio" class="mRelogio"></span>
+  </div>
+  <div class="mCorpo">
+    <div class="mPainel" id="mEsq"></div>
+    <div class="mPainel" id="mDir"></div>
+  </div>
+  <div class="mRodape"><span>Fonte: TSE · resultados.tse.jus.br</span><span id="mTse"></span></div>
+  <div class="mControles">
+    <button type="button" id="mCheia">Tela cheia</button>
+    <button type="button" id="mSair">Sair do monitor</button>
+  </div>
+</div>
 
 <dialog id="ficha" aria-label="Dados do candidato"><div id="fichaCorpo"></div></dialog>
 
@@ -336,6 +410,9 @@ function atualizarStatus(d) {
   else if (pst > 0) { texto = `Em andamento · ${d.s.pst}% das seções`; el.className = 'status andando'; }
   el.lastElementChild.textContent = texto;
   $('tse').textContent = d.dt ? `Última totalização do TSE: ${d.dt} ${d.ht}` : `Arquivo do TSE gerado em ${d.dg} ${d.hg}`;
+  $('mStatus').className = el.className;
+  $('mStatus').lastElementChild.textContent = texto;
+  $('mTse').textContent = $('tse').textContent;
   document.title = pst > 0 ? `${d.s.pst}% apurado · Eleições 2026` : 'Apuração 2026';
 }
 
@@ -346,8 +423,10 @@ async function carregarPresidente() {
     const brasil = getJSON(urlDados(ele, 'br', 1));
     const d = noBrasil ? await brasil : await getJSON(urlDados(ele, S.presAbr, 1, S.presMun));
     $('pres').innerHTML = listaHTML(d, { origem: 'pres', ele, fotoAbr: 'br', majoritario: true, semVice: true });
-    atualizarStatus(await brasil);
+    dadosBR = await brasil;
+    atualizarStatus(dadosBR);
   } catch (e) {
+    if (e.status === 404) dadosBR = null;
     $('pres').innerHTML = mensagemErro(e);
     if (e.status === 404) $('status').lastElementChild.textContent = 'Sem dados para este turno';
   }
@@ -498,10 +577,125 @@ async function preencherMunicipios() {
   }
 }
 
+// ---- Modo monitor: tela cheia para deixar ligada numa TV ou num segundo monitor.
+// À esquerda fica a disputa presidencial; à direita, um rodízio de quadros que troca sozinho.
+let dadosBR = null;
+const dadosMon = { gov: null, sen: null };
+const TROCA_QUADRO = 12000;
+let mQuadro = 0;
+let mRodizio = null;
+let mTravaTela = null;
+let mEsconde = null;
+const monitorAberto = () => !$('monitor').hidden;
+
+function mCargoHTML(d, ele, fotoAbr, quantos, majoritario) {
+  const lista = candidatos(d).slice(0, quantos);
+  const maior = Math.max(...lista.map((c) => num(c.pvap)), 0.0001);
+  const linhas = lista.map((c) => {
+    const largura = majoritario ? num(c.pvap) : (num(c.pvap) / maior) * 100;
+    return `<div class="mCand${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}">
+      <img class="foto" alt="" src="${TSE}oficial/${CICLO}/${ele}/fotos/${fotoAbr}/${esc(c.sqcand)}.jpeg" onerror="this.style.visibility='hidden'">
+      <div style="min-width:0">
+        <div class="mNome">${esc(c.nmu)}<span class="mPart">${esc(c.sg)}</span>${c.st ? `<span class="selo">${esc(c.st)}</span>` : ''}</div>
+        <div class="barra"><i style="width:${Math.min(largura, 100)}%"></i>${majoritario ? '<b></b>' : ''}</div>
+      </div>
+      <div class="mNum"><strong>${esc(c.pvap)}%</strong><span>${milhar(c.vap)} votos</span></div>
+    </div>`;
+  }).join('');
+  return `<div class="mProg"><strong>${esc(d.s?.pst)}%</strong><span>das seções<br>totalizadas</span><div class="progresso"><i style="width:${num(d.s?.pst)}%"></i></div></div>
+    <div class="mLista">${linhas}</div>`;
+}
+
+function mQuadros() {
+  const t = TURNOS[S.turno];
+  const quadros = [];
+  const siglas = Object.keys(UFS).filter((uf) => dadosUFs[uf]);
+  for (let i = 0; i < siglas.length; i += 10) {
+    const linhas = siglas.slice(i, i + 10).map((uf) => {
+      const d = dadosUFs[uf];
+      const [a, b] = candidatos(d);
+      const temVoto = a && num(a.vap) > 0;
+      const celula = (c) => (temVoto && c ? `<i class="ponto${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}"></i><b>${esc(c.nmu)}</b> ${esc(c.pvap)}%` : '—');
+      return `<div class="mUF"><span><b>${UFS[uf]}</b></span><span>${esc(d.s?.pst)}%</span><span>${celula(a)}</span><span>${celula(b)}</span></div>`;
+    }).join('');
+    quadros.push({ titulo: 'Presidente por estado', html: `<div class="mUFs"><div class="mUF mCab"><span>Estado</span><span>Apurado</span><span>1º colocado</span><span>2º colocado</span></div>${linhas}</div>` });
+  }
+  if (dadosMon.gov) quadros.push({ titulo: `Governador · ${UFS[S.estUF]}`, html: mCargoHTML(dadosMon.gov, t.est, S.estUF, 4, true) });
+  if (dadosMon.sen) quadros.push({ titulo: `Senador · ${UFS[S.estUF]}`, html: mCargoHTML(dadosMon.sen, t.est, S.estUF, 4, false) });
+  if (dadosBR) {
+    const { e = {}, v = {} } = dadosBR;
+    const bloco = (rotulo, pct, qtd, cor) => `<div style="--cor:${cor}"><span>${rotulo}</span><strong>${esc(pct)}%</strong><small>${milhar(qtd)}</small></div>`;
+    quadros.push({ titulo: 'Números do Brasil', html: `<div class="mNumeros">
+      ${bloco('Comparecimento', e.pc, e.c, '#2563eb')}${bloco('Abstenção', e.pa, e.a, '#f97316')}
+      ${bloco('Votos válidos', v.pvv, v.vv, '#0891b2')}${bloco('Brancos', v.pvb, v.vb, '#9333ea')}
+      ${bloco('Nulos', v.ptvn, v.tvn, '#e11d48')}<div style="--cor:#16a34a"><span>Eleitorado</span><strong>${milhar(e.te)}</strong><small>eleitores aptos</small></div>
+    </div>` });
+  }
+  return quadros;
+}
+
+function renderMonitorDireita() {
+  if (!monitorAberto()) return;
+  const quadros = mQuadros();
+  if (!quadros.length) { $('mDir').innerHTML = '<p class="aviso">Aguardando dados do TSE…</p>'; return; }
+  mQuadro %= quadros.length;
+  const pontos = quadros.map((_, i) => `<i${i === mQuadro ? ' class="on"' : ''}></i>`).join('');
+  $('mDir').innerHTML = `<div class="mTit"><span>${esc(quadros[mQuadro].titulo)}</span><span class="mPontos">${pontos}</span></div>${quadros[mQuadro].html}`;
+}
+
+function renderMonitor() {
+  if (!monitorAberto()) return;
+  $('mTurno').textContent = S.turno === '2' ? '2º TURNO' : '1º TURNO';
+  $('mEsq').innerHTML = '<div class="mTit"><span>Presidente · Brasil</span></div>'
+    + (dadosBR ? mCargoHTML(dadosBR, TURNOS[S.turno].fed, 'br', 6, true) : '<p class="aviso">Aguardando dados do TSE…</p>');
+  renderMonitorDireita();
+}
+
+async function carregarMonitor() {
+  if (!monitorAberto()) return;
+  const ele = TURNOS[S.turno].est;
+  const [gov, sen] = await Promise.allSettled([getJSON(urlDados(ele, S.estUF, 3)), getJSON(urlDados(ele, S.estUF, 5))]);
+  dadosMon.gov = gov.status === 'fulfilled' ? gov.value : null;
+  dadosMon.sen = sen.status === 'fulfilled' ? sen.value : null;
+}
+
+// Pede ao navegador para não apagar a tela enquanto o monitor estiver aberto (nem todo navegador atende).
+async function manterTelaLigada() {
+  try { mTravaTela = await navigator.wakeLock?.request('screen'); } catch {}
+}
+
+async function telaCheia() {
+  try { await document.documentElement.requestFullscreen(); } catch {}
+}
+
+async function abrirMonitor(cheia) {
+  $('monitor').hidden = false;
+  document.body.style.overflow = 'hidden';
+  if (location.hash !== '#monitor') history.replaceState(null, '', '#monitor');
+  mRodizio ??= setInterval(() => { mQuadro += 1; renderMonitorDireita(); }, TROCA_QUADRO);
+  if (cheia) telaCheia();
+  manterTelaLigada();
+  renderMonitor();
+  await carregarMonitor();
+  renderMonitorDireita();
+}
+
+function fecharMonitor() {
+  $('monitor').hidden = true;
+  document.body.style.overflow = '';
+  history.replaceState(null, '', location.pathname + location.search);
+  clearInterval(mRodizio);
+  mRodizio = null;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  mTravaTela?.release().catch(() => {});
+  mTravaTela = null;
+}
+
 function atualizar() {
   falta = S.intervalo;
-  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs()]).then(() => {
+  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs(), carregarMonitor()]).then(() => {
     if ($('ficha').open) mostrarFicha();
+    renderMonitor();
   });
 }
 
@@ -535,6 +729,23 @@ function montarControles() {
   aoMudar('intervalo', 'intervalo', () => { S.intervalo = Number(S.intervalo); falta = S.intervalo; });
   $('busca').addEventListener('input', mostrarEstado);
   $('agora').addEventListener('click', atualizar);
+  $('abrirMonitor').addEventListener('click', () => abrirMonitor(true));
+  $('mCheia').addEventListener('click', telaCheia);
+  $('mSair').addEventListener('click', fecharMonitor);
+  // Os botões do monitor só aparecem quando alguém mexe o mouse ou toca na tela.
+  for (const evento of ['mousemove', 'touchstart', 'click']) {
+    $('monitor').addEventListener(evento, () => {
+      $('monitor').classList.add('ativo');
+      clearTimeout(mEsconde);
+      mEsconde = setTimeout(() => $('monitor').classList.remove('ativo'), 3000);
+    });
+  }
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && monitorAberto() && !$('ficha').open) fecharMonitor();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && monitorAberto()) manterTelaLigada();
+  });
   for (const origem of ['pres', 'est']) {
     $(origem).addEventListener('click', (ev) => {
       const sq = ev.target.closest('.cand')?.dataset.sq;
@@ -557,10 +768,12 @@ function montarControles() {
 
 montarControles();
 preencherMunicipios().then(atualizar);
+if (location.hash === '#monitor') abrirMonitor(false);
 setInterval(() => {
   falta -= 1;
   if (falta <= 0) atualizar();
   $('contagem').textContent = `Próxima atualização em ${Math.max(falta, 0)} s`;
+  if (monitorAberto()) $('mRelogio').textContent = new Date().toLocaleTimeString('pt-BR');
 }, 1000);
 </script>
 </body>
