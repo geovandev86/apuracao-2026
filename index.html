@@ -235,16 +235,18 @@
   }
 
   /* Logotipos redondos nas laterais da página; em telas estreitas viram uma fileira abaixo do topo. */
-  .lateral { position: fixed; top: 50%; z-index: 4; transform: translateY(-40%); display: flex; flex-direction: column; gap: 18px; }
-  .lateral.esq { left: 14px; }
-  .lateral.dir { right: 14px; }
+  /* --margem é a faixa livre de cada lado do conteúdo; o logotipo cresce com ela, até 250px. */
+  .logos { --margem: max(150px, calc((100vw - 1236px) / 2)); }
+  .lateral { position: fixed; top: 50%; z-index: 4; transform: translateY(-42%); width: var(--margem); display: flex; flex-direction: column; align-items: center; gap: 24px; }
+  .lateral.esq { left: 0; }
+  .lateral.dir { right: 0; }
   .lateral img, .mLogos img { border-radius: 50%; object-fit: cover; background: #fff; }
-  .lateral img { display: block; width: min(96px, 16vh); height: min(96px, 16vh); border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
-  @media (min-width: 1001px) { main { padding-inline: 132px; max-width: 1500px; } }
+  .lateral img { display: block; width: min(clamp(110px, calc(var(--margem) - 44px), 250px), 36vh); height: auto; aspect-ratio: 1; border: 4px solid #fff; box-shadow: 0 6px 20px rgba(0, 0, 0, .4); }
+  @media (min-width: 1001px) { main { padding-inline: 150px; max-width: 1536px; } }
   @media (max-width: 1000px) {
     .logos { display: flex; justify-content: center; gap: 14px; padding: 12px 10px 0; }
-    .lateral { position: static; transform: none; flex-direction: row; gap: 14px; }
-    .lateral img { width: 58px; height: 58px; border-width: 2px; }
+    .lateral { position: static; transform: none; width: auto; flex-direction: row; gap: 14px; }
+    .lateral img { width: 70px; border-width: 2px; }
   }
   .mLogos { display: flex; gap: .5em; }
   .mLogos img { width: 2.3em; height: 2.3em; border: .1em solid #fff; }
@@ -337,7 +339,7 @@
 
 <script>
 // Trocar a cada publicação: é o que faz as páginas já abertas recarregarem sozinhas, sem F5.
-const VERSAO = '2026-10-04 19:05';
+const VERSAO = '2026-10-04 19:20';
 const CICLO = 'ele2026';
 // No computador (localhost) as consultas passam pelo server.js; publicada na internet, a página fala direto com o TSE.
 const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
