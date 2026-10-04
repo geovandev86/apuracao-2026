@@ -208,6 +208,31 @@
   @keyframes aTempo { from { width: 100%; } to { width: 0; } }
   .aFechar { position: absolute; top: .7em; right: .7em; width: 2.2em; height: 2.2em; padding: 0; border-radius: 50%; font-size: max(14px, .8em); color: var(--texto); background: rgba(0, 0, 0, .35); border-color: transparent; }
   @media (prefers-reduced-motion: reduce) { .aCartao { animation: none; } }
+
+  /* Tela de resultado: mais votado e menos votado de cada cargo. */
+  #resultado { width: min(780px, calc(100% - 24px)); }
+  .rTopo { display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: #fff; background: linear-gradient(90deg, #0a3fa8, #00913a); border-bottom: 4px solid #ffd500; }
+  .rTopo h3 { flex: 1; margin: 0; font-size: 18px; }
+  .rTopo .fFechar { color: #1a1a00; background: #ffd500; border-color: #ffd500; }
+  .rAbas { display: flex; gap: 8px; padding: 12px 16px 0; }
+  .rAbas button.on { color: #fff; background: #1d4ed8; border-color: #1d4ed8; }
+  .rUF { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .rCartao { border: 1px solid var(--linha); border-radius: 10px; padding: 12px; }
+  .rCab { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 6px; }
+  .rCab h4 { flex: 1; font-size: 15px; }
+  .rSit { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--alerta); color: var(--alerta); white-space: nowrap; }
+  .rSit.final { border-color: var(--ok); color: var(--ok); }
+  .rLinha { display: grid; grid-template-columns: 104px 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid var(--linha); }
+  .rLinha .foto { width: 40px; height: 48px; border-width: 2px; }
+  .rRot { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 3px 8px; border-radius: 6px; text-align: center; color: #fff; }
+  .rRot.mais { background: #15803d; }
+  .rRot.menos { background: #b91c1c; }
+  .rLinha .nome { font-weight: 700; }
+  .rCartao .nota { margin: 6px 0 0; }
+  @media (max-width: 600px) {
+    .rLinha { grid-template-columns: 40px minmax(0, 1fr) auto; }
+    .rRot { grid-column: 1 / -1; justify-self: start; }
+  }
 </style>
 </head>
 <body>
@@ -229,6 +254,7 @@
       <option value="120">a cada 2 min</option>
     </select>
     <button id="agora">Atualizar agora</button>
+    <button id="abrirResultado" title="Mais votado e menos votado de cada cargo">Resultado</button>
     <button id="abrirMonitor" title="Tela cheia para deixar ligada numa TV ou monitor">Modo monitor</button>
   </div>
 </header>
@@ -283,6 +309,8 @@
 </div>
 
 <div id="aviso" role="alertdialog" aria-live="assertive" hidden></div>
+
+<dialog id="resultado" aria-label="Resultado: mais e menos votados"><div id="resultadoCorpo"></div></dialog>
 
 <dialog id="ficha" aria-label="Dados do candidato"><div id="fichaCorpo"></div></dialog>
 
@@ -441,6 +469,12 @@ function atualizarStatus(d) {
   $('mStatus').className = el.className;
   $('mStatus').lastElementChild.textContent = texto;
   $('mTse').textContent = $('tse').textContent;
+  // Quando a apuração termina, a tela de resultado abre sozinha uma única vez (fora do modo monitor).
+  const concluida = d.tf === 's' || pst >= 100;
+  if (concluida && ler('resultadoVisto', '') !== S.turno && !monitorAberto() && !$('resultado').open) {
+    gravar('resultadoVisto', S.turno);
+    abrirResultado();
+  }
   document.title = pst > 0 ? `${d.s.pst}% apurado · Eleições 2026` : 'Apuração 2026';
 }
 
@@ -719,6 +753,146 @@ function fecharMonitor() {
   mTravaTela = null;
 }
 
+// ---- Resultado: mais votado e menos votado de cada cargo, no geral (Brasil inteiro) e por estado.
+const ESTADOS = Object.keys(UFS).filter((uf) => uf !== 'zz');
+// Senadores e deputados dos 27 estados são dezenas de arquivos grandes: o geral recarrega no máximo a cada 2 minutos.
+const VALIDADE_GERAL = 120000;
+let resAba = 'geral';
+let dadosRes = { uf: null, lista: [] };
+const dadosGeral = { quando: 0, turno: null, cargos: null, carregando: null };
+
+// Guarda só o essencial de cada arquivo (primeiro, último e empates), para não ocupar memória no celular.
+function resumir(d, uf) {
+  const lista = d ? candidatos(d) : [];
+  if (!lista.length) return null;
+  const ultimo = lista.at(-1);
+  return {
+    uf, total: lista.length, mais: lista.slice(0, 2), menos: ultimo,
+    noMenor: lista.filter((c) => num(c.vap) === num(ultimo.vap)).length,
+    temVoto: num(lista[0].vap) > 0, pst: d.s?.pst, vagas: num(d.carg[0].nv) || 1,
+    final: d.tf === 's' || num(d.s?.pst) >= 100,
+  };
+}
+
+async function carregarResultado() {
+  const uf = S.estUF;
+  const cargos = [3, 5, 6, uf === 'df' ? 8 : 7];
+  const respostas = await Promise.allSettled(cargos.map((cargo) => getJSON(urlDados(TURNOS[S.turno].est, uf, cargo))));
+  dadosRes = { uf, lista: respostas.map((r) => (r.status === 'fulfilled' ? resumir(r.value, uf) : null)) };
+}
+
+function carregarGeral() {
+  if (dadosGeral.carregando) return dadosGeral.carregando;
+  if (dadosGeral.turno === S.turno && Date.now() - dadosGeral.quando < VALIDADE_GERAL) return Promise.resolve();
+  const turno = S.turno;
+  const ele = TURNOS[turno].est;
+  const tarefas = [];
+  for (const cargo of [5, 6, 7]) for (const uf of ESTADOS) tarefas.push({ cargo, uf });
+  const cargos = { 5: [], 6: [], 7: [] };
+  // Nove consultas por vez, para não sobrecarregar o TSE nem o navegador.
+  const trabalhar = async () => {
+    for (let t = tarefas.shift(); t; t = tarefas.shift()) {
+      try {
+        const d = await getJSON(urlDados(ele, t.uf, t.cargo === 7 && t.uf === 'df' ? 8 : t.cargo));
+        cargos[t.cargo].push(resumir(d, t.uf));
+      } catch {}
+    }
+  };
+  dadosGeral.carregando = Promise.all(Array.from({ length: 9 }, trabalhar)).then(() => {
+    Object.assign(dadosGeral, { quando: Date.now(), turno, cargos, carregando: null });
+  });
+  return dadosGeral.carregando;
+}
+
+// local: nome do estado, usado no geral para dizer de onde é o candidato.
+function resLinha(c, rotulo, classe, ele, fotoAbr, local) {
+  return `<div class="rLinha${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}">
+      <span class="rRot ${classe}">${rotulo}</span>
+      <img class="foto" alt="" loading="lazy" src="${TSE}oficial/${CICLO}/${ele}/fotos/${fotoAbr}/${esc(c.sqcand)}.jpeg" onerror="this.style.visibility='hidden'">
+      <div style="min-width:0"><div class="nome">${esc(c.nmu)}${c.st ? `<span class="selo">${esc(c.st)}</span>` : ''}</div>
+        <div class="partido">${esc(c.n)} · ${esc(c.sg)}${local ? ' · ' + esc(local) : ''}</div></div>
+      <div class="nums">${local
+        ? `<strong>${milhar(c.vap)}</strong><span>votos · ${esc(c.pvap)}% no estado</span>`
+        : `<strong>${esc(c.pvap)}%</strong><span>${milhar(c.vap)} votos</span>`}</div>
+    </div>`;
+}
+
+function resMoldura(titulo, situacao, final, corpo, rodape) {
+  return `<div class="rCartao"><div class="rCab"><h4>${titulo}</h4>${situacao ? `<span class="rSit${final ? ' final' : ''}">${situacao}</span>` : ''}</div>${corpo}${rodape ? `<p class="nota">${rodape}</p>` : ''}</div>`;
+}
+
+const NOTA_DEPUTADO = '<p class="nota">Para deputado, ser o mais votado não garante a vaga: a eleição depende também dos votos do partido.</p>';
+const notaEmpate = (n, votos) => (n > 0 ? `<p class="nota">Outros ${n} ${n === 1 ? 'candidato teve' : 'candidatos tiveram'} a mesma votação do menos votado (${milhar(votos)} votos).</p>` : '');
+
+// Um cargo em um lugar só (presidente no Brasil ou em um estado, e os cargos de um estado).
+function resCartao(r, titulo, ele, fotoAbr, cargo) {
+  if (!r) return resMoldura(titulo, '', false, '<p class="nota">O TSE ainda não publicou dados para este cargo.</p>');
+  const situacao = r.final ? 'Resultado final' : num(r.pst) > 0 ? `Parcial · ${esc(r.pst)}% das seções` : 'Apuração não iniciada';
+  if (!r.temVoto) return resMoldura(titulo, situacao, r.final, '<p class="nota">Nenhum voto totalizado ainda.</p>', `${r.total} candidatos na disputa.`);
+  // No Senado há mais de uma vaga por estado, então aparecem os mais votados até o número de vagas.
+  const mais = r.mais.slice(0, cargo === 5 ? r.vagas : 1);
+  const corpo = mais.map((c) => resLinha(c, 'Mais votado', 'mais', ele, fotoAbr)).join('') + resLinha(r.menos, 'Menos votado', 'menos', ele, fotoAbr)
+    + notaEmpate(r.noMenor - 1, r.menos.vap) + (cargo >= 6 ? NOTA_DEPUTADO : '');
+  return resMoldura(titulo, situacao, r.final, corpo, `${r.total} candidatos na disputa.`);
+}
+
+// Um cargo no Brasil inteiro, juntando os resumos dos estados.
+function resCartaoGeral(resumos, titulo, ele, cargo) {
+  const lista = (resumos ?? []).filter(Boolean);
+  if (!lista.length) return resMoldura(titulo, '', false, '<p class="nota">O TSE ainda não publicou dados para este cargo.</p>');
+  const concluidos = lista.filter((r) => r.final).length;
+  const final = concluidos === lista.length;
+  const situacao = final ? 'Resultado final' : `Parcial · ${concluidos} de ${lista.length} estados concluídos`;
+  const total = lista.reduce((soma, r) => soma + r.total, 0);
+  const comVoto = lista.filter((r) => r.temVoto);
+  if (!comVoto.length) return resMoldura(titulo, situacao, final, '<p class="nota">Nenhum voto totalizado ainda.</p>', `${total} candidatos no país.`);
+  const maior = comVoto.reduce((a, b) => (num(b.mais[0].vap) > num(a.mais[0].vap) ? b : a));
+  const menor = comVoto.reduce((a, b) => (num(b.menos.vap) < num(a.menos.vap) ? b : a));
+  const empatados = comVoto.filter((r) => num(r.menos.vap) === num(menor.menos.vap)).reduce((soma, r) => soma + r.noMenor, 0) - 1;
+  const corpo = resLinha(maior.mais[0], 'Mais votado', 'mais', ele, maior.uf, UFS[maior.uf]) + resLinha(menor.menos, 'Menos votado', 'menos', ele, menor.uf, UFS[menor.uf])
+    + notaEmpate(empatados, menor.menos.vap) + (cargo >= 6 ? NOTA_DEPUTADO : '');
+  const rodape = `${total} candidatos no país.` + (comVoto.length < lista.length ? ` Considera os ${comVoto.length} estados que já têm votos totalizados.` : '');
+  return resMoldura(titulo, situacao, final, corpo, rodape);
+}
+
+function mostrarResultado() {
+  const t = TURNOS[S.turno];
+  let corpo;
+  if (resAba === 'geral') {
+    const pronto = dadosGeral.turno === S.turno && dadosGeral.cargos;
+    corpo = resCartao(resumir(dadosBR, 'br'), 'Presidente · Brasil', t.fed, 'br', 1)
+      + resCartaoGeral(ESTADOS.map((uf) => resumir(dadosGov[uf], uf)), 'Governador · todos os estados', t.est, 3)
+      + (pronto
+        ? resCartaoGeral(dadosGeral.cargos[5], 'Senador · todos os estados', t.est, 5)
+          + resCartaoGeral(dadosGeral.cargos[6], 'Deputado Federal · todos os estados', t.est, 6)
+          + resCartaoGeral(dadosGeral.cargos[7], 'Deputado Estadual e Distrital · todos os estados', t.est, 7)
+        : '<p class="aviso">Carregando senadores e deputados dos 27 estados. Pode levar alguns segundos…</p>');
+  } else {
+    const uf = S.estUF;
+    const nomes = ['Governador', 'Senador', 'Deputado Federal', uf === 'df' ? 'Deputado Distrital' : 'Deputado Estadual'];
+    const opcoes = ESTADOS.map((cd) => `<option value="${cd}"${cd === uf ? ' selected' : ''}>${UFS[cd]}</option>`).join('');
+    corpo = `<label class="rUF">Estado <select id="resUF">${opcoes}</select></label>`
+      + resCartao(resumir(dadosUFs[uf], uf), `Presidente · ${UFS[uf]}`, t.fed, 'br', 1)
+      + (dadosRes.uf === uf
+        ? dadosRes.lista.map((r, i) => resCartao(r, `${nomes[i]} · ${UFS[uf]}`, t.est, uf, [3, 5, 6, 7][i])).join('')
+        : '<p class="aviso">Carregando os cargos do estado…</p>');
+  }
+  const aba = (id, rotulo) => `<button type="button" data-aba="${id}"${resAba === id ? ' class="on"' : ''}>${rotulo}</button>`;
+  const janela = $('resultado');
+  const rolagem = janela.scrollTop;
+  $('resultadoCorpo').innerHTML = `<div class="rTopo"><h3>Resultado · mais e menos votados</h3><button type="button" class="fFechar" data-fechar aria-label="Fechar">✕</button></div>
+    <div class="rAbas">${aba('geral', 'Geral · Brasil')}${aba('estado', 'Por estado')}</div>
+    <div class="fCorpo">${corpo}</div>`;
+  if (!janela.open) janela.showModal();
+  else janela.scrollTop = rolagem;
+}
+
+async function abrirResultado() {
+  mostrarResultado();
+  await (resAba === 'geral' ? carregarGeral() : carregarResultado());
+  if ($('resultado').open) mostrarResultado();
+}
+
 // ---- Aviso de eleito: quando o TSE marca um governador (ou o presidente) como eleito, um aviso aparece na tela.
 // Cada eleito é avisado uma única vez neste navegador, mesmo que a página seja recarregada.
 const DURACAO_AVISO = 12000;
@@ -783,6 +957,7 @@ function atualizar() {
   falta = S.intervalo;
   return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs(), carregarMonitor(), carregarGovernadores()]).then(() => {
     if ($('ficha').open) mostrarFicha();
+    if ($('resultado').open) abrirResultado();
     renderMonitor();
     avisarEleitos();
   });
@@ -819,6 +994,22 @@ function montarControles() {
   $('busca').addEventListener('input', mostrarEstado);
   $('agora').addEventListener('click', atualizar);
   $('abrirMonitor').addEventListener('click', () => abrirMonitor(true));
+  $('abrirResultado').addEventListener('click', abrirResultado);
+  $('resultado').addEventListener('click', (ev) => {
+    if (ev.target === $('resultado') || ev.target.closest('[data-fechar]')) { $('resultado').close(); return; }
+    const aba = ev.target.closest('[data-aba]')?.dataset.aba;
+    if (aba && aba !== resAba) {
+      resAba = aba;
+      $('resultado').scrollTop = 0;
+      abrirResultado();
+    }
+  });
+  $('resultado').addEventListener('change', (ev) => {
+    if (ev.target.id !== 'resUF') return;
+    $('estUF').value = ev.target.value;
+    $('estUF').dispatchEvent(new Event('change'));
+    abrirResultado();
+  });
   $('mCheia').addEventListener('click', telaCheia);
   $('mSair').addEventListener('click', fecharMonitor);
   // Os botões do monitor só aparecem quando alguém mexe o mouse ou toca na tela.
