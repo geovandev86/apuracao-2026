@@ -58,6 +58,14 @@ const servidor = http.createServer(async (req, res) => {
     return;
   }
 
+  if (/^\/logos\/[\w-]+\.png$/.test(url.pathname)) {
+    const arquivo = path.join(__dirname, url.pathname);
+    if (!fs.existsSync(arquivo)) { res.writeHead(404).end('Não encontrado'); return; }
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=3600' });
+    fs.createReadStream(arquivo).pipe(res);
+    return;
+  }
+
   if (url.pathname.startsWith('/tse/')) {
     const caminho = url.pathname.slice(5);
     if (!/^oficial\/[\w\-./]+$/.test(caminho) || caminho.includes('..')) {
