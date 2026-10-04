@@ -315,6 +315,8 @@
 <dialog id="ficha" aria-label="Dados do candidato"><div id="fichaCorpo"></div></dialog>
 
 <script>
+// Trocar a cada publicação: é o que faz as páginas já abertas recarregarem sozinhas, sem F5.
+const VERSAO = '2026-10-04 18:45';
 const CICLO = 'ele2026';
 // No computador (localhost) as consultas passam pelo server.js; publicada na internet, a página fala direto com o TSE.
 const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -1050,8 +1052,25 @@ function montarControles() {
   });
 }
 
+// ---- Atualização automática do site: a cada minuto a página confere se foi publicada uma versão nova e recarrega sozinha.
+async function conferirVersao() {
+  try {
+    const r = await fetch(location.pathname + '?_=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const nova = (await r.text()).match(/const VERSAO = '([^']+)'/)?.[1];
+    if (!nova || nova === VERSAO) return;
+    // Não interrompe quem está em tela cheia ou com uma janela aberta: tenta de novo no próximo minuto.
+    if (document.fullscreenElement || $('ficha').open || $('resultado').open) return;
+    // Só tenta uma vez por versão, para não ficar recarregando se o navegador insistir na página antiga.
+    if (ler('recarregouPara', '') === nova) return;
+    gravar('recarregouPara', nova);
+    location.replace(location.pathname + '?v=' + encodeURIComponent(nova) + location.hash);
+  } catch {}
+}
+
 montarControles();
 preencherMunicipios().then(atualizar);
+setInterval(conferirVersao, 60000);
 if (location.hash === '#monitor') abrirMonitor(false);
 setInterval(() => {
   falta -= 1;
