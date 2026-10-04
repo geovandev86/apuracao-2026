@@ -182,6 +182,32 @@
     .mCorpo { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1.3fr 1fr; }
     .mTitulo { font-size: 1.25em; }
   }
+
+  /* Aviso de eleito: aparece por cima de tudo (inclusive do modo monitor) e some sozinho. */
+  #aviso { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .72);
+    --cartao: #141821; --texto: #f3f5f9; --suave: #a7b1c0; --trilho: #252b36; color: var(--texto);
+    font-size: clamp(13px, min(1.5vw, 2.6vh), 38px); }
+  #aviso[hidden] { display: none; }
+  .aCartao { position: relative; width: min(32em, 100%); padding: 1.4em 1.6em 1.6em; border-radius: 1.2em; text-align: center; overflow: hidden;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--cor) 34%, var(--cartao)), var(--cartao) 62%);
+    border-top: .5em solid var(--cor); box-shadow: 0 1.5em 5em rgba(0, 0, 0, .7); animation: aEntra .45s cubic-bezier(.2, 1.3, .4, 1); }
+  .aCartao.bandeira { border-image: linear-gradient(90deg, var(--faixas)) 1; }
+  @keyframes aEntra { from { transform: scale(.82); opacity: 0; } }
+  .aSelo { display: inline-block; padding: .25em 1em; border-radius: 99px; background: #ffd500; color: #1a1a00; font-weight: 800; letter-spacing: .08em; }
+  .aLocal { margin-top: .7em; font-size: 1.5em; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+  .aCartao .foto { display: block; width: 7.2em; height: 8.8em; margin: .8em auto .6em; border-width: .28em; border-radius: .8em; }
+  .aCartao.bandeira .foto { padding: .28em; }
+  .aNome { font-size: 2.3em; font-weight: 800; line-height: 1.1; text-wrap: balance; }
+  .aPartido { margin-top: .3em; color: var(--suave); }
+  .aCargo { margin-top: .9em; font-weight: 700; }
+  .aNums { margin-top: .2em; color: var(--suave); font-variant-numeric: tabular-nums; }
+  .aNums strong { font-size: 1.7em; color: color-mix(in srgb, var(--cor) 55%, #fff); }
+  .aFila { margin-top: .8em; color: var(--suave); font-size: .85em; }
+  .aTempo { position: absolute; left: 0; right: 0; bottom: 0; height: .4em; background: var(--trilho); }
+  .aTempo i { display: block; height: 100%; background: #ffd500; animation: aTempo linear forwards; }
+  @keyframes aTempo { from { width: 100%; } to { width: 0; } }
+  .aFechar { position: absolute; top: .7em; right: .7em; width: 2.2em; height: 2.2em; padding: 0; border-radius: 50%; font-size: max(14px, .8em); color: var(--texto); background: rgba(0, 0, 0, .35); border-color: transparent; }
+  @media (prefers-reduced-motion: reduce) { .aCartao { animation: none; } }
 </style>
 </head>
 <body>
@@ -255,6 +281,8 @@
     <button type="button" id="mSair">Sair do monitor</button>
   </div>
 </div>
+
+<div id="aviso" role="alertdialog" aria-live="assertive" hidden></div>
 
 <dialog id="ficha" aria-label="Dados do candidato"><div id="fichaCorpo"></div></dialog>
 
@@ -691,11 +719,72 @@ function fecharMonitor() {
   mTravaTela = null;
 }
 
+// ---- Aviso de eleito: quando o TSE marca um governador (ou o presidente) como eleito, um aviso aparece na tela.
+// Cada eleito é avisado uma única vez neste navegador, mesmo que a página seja recarregada.
+const DURACAO_AVISO = 12000;
+const dadosGov = {};
+const filaAvisos = [];
+let avisoRelogio = null;
+let avisados;
+try { avisados = new Set(JSON.parse(ler('avisados', '[]'))); } catch { avisados = new Set(); }
+
+const foiEleito = (c) => c.e === 's' || /^eleit/i.test(c.st || '');
+
+function conferirEleitos(d, local, cargo, ele, fotoAbr) {
+  for (const c of candidatos(d).filter(foiEleito)) {
+    const chave = ele + '-' + c.sqcand;
+    if (avisados.has(chave)) continue;
+    avisados.add(chave);
+    filaAvisos.push({ c, local, cargo, ele, fotoAbr });
+    // Já deixa a foto carregada para o aviso não abrir com o quadro vazio.
+    new Image().src = `${TSE}oficial/${CICLO}/${ele}/fotos/${fotoAbr}/${c.sqcand}.jpeg`;
+  }
+}
+
+function proximoAviso() {
+  clearTimeout(avisoRelogio);
+  const a = filaAvisos.shift();
+  if (!a) { $('aviso').hidden = true; return; }
+  const { c } = a;
+  $('aviso').innerHTML = `<div class="aCartao${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}">
+      <button type="button" class="aFechar" aria-label="Fechar aviso">✕</button>
+      <span class="aSelo">RESULTADO DEFINIDO</span>
+      <div class="aLocal">${esc(a.local)} elegeu</div>
+      <img class="foto" alt="" src="${TSE}oficial/${CICLO}/${a.ele}/fotos/${a.fotoAbr}/${esc(c.sqcand)}.jpeg" onerror="this.style.visibility='hidden'">
+      <div class="aNome">${esc(c.nmu)}</div>
+      <div class="aPartido">${esc(c.sg)}${c.vice ? ' · vice ' + esc(c.vice) : ''}</div>
+      <div class="aCargo">${a.cargo} · ${S.turno === '2' ? '2º' : '1º'} turno</div>
+      <div class="aNums"><strong>${esc(c.pvap)}%</strong> dos votos válidos · ${milhar(c.vap)} votos</div>
+      ${filaAvisos.length ? `<div class="aFila">Mais ${filaAvisos.length} ${filaAvisos.length === 1 ? 'aviso' : 'avisos'} em seguida</div>` : ''}
+      <div class="aTempo"><i style="animation-duration:${DURACAO_AVISO}ms"></i></div>
+    </div>`;
+  $('aviso').hidden = false;
+  avisoRelogio = setTimeout(proximoAviso, DURACAO_AVISO);
+}
+
+// Busca o governador de todos os estados só para saber quem já foi eleito.
+async function carregarGovernadores() {
+  const ele = TURNOS[S.turno].est;
+  const siglas = Object.keys(UFS).filter((uf) => uf !== 'zz');
+  const respostas = await Promise.allSettled(siglas.map((uf) => getJSON(urlDados(ele, uf, 3))));
+  siglas.forEach((uf, i) => {
+    dadosGov[uf] = respostas[i].status === 'fulfilled' ? respostas[i].value : null;
+    if (dadosGov[uf]) conferirEleitos(dadosGov[uf], UFS[uf], 'Governo do estado', ele, uf);
+  });
+}
+
+function avisarEleitos() {
+  if (dadosBR) conferirEleitos(dadosBR, 'O Brasil', 'Presidência da República', TURNOS[S.turno].fed, 'br');
+  gravar('avisados', JSON.stringify([...avisados]));
+  if ($('aviso').hidden) proximoAviso();
+}
+
 function atualizar() {
   falta = S.intervalo;
-  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs(), carregarMonitor()]).then(() => {
+  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs(), carregarMonitor(), carregarGovernadores()]).then(() => {
     if ($('ficha').open) mostrarFicha();
     renderMonitor();
+    avisarEleitos();
   });
 }
 
@@ -740,8 +829,12 @@ function montarControles() {
       mEsconde = setTimeout(() => $('monitor').classList.remove('ativo'), 3000);
     });
   }
+  // Clicar no aviso (ou apertar Esc) passa para o próximo sem esperar o tempo acabar.
+  $('aviso').addEventListener('click', proximoAviso);
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && monitorAberto() && !$('ficha').open) fecharMonitor();
+    if (ev.key !== 'Escape') return;
+    if (!$('aviso').hidden) proximoAviso();
+    else if (monitorAberto() && !$('ficha').open) fecharMonitor();
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && monitorAberto()) manterTelaLigada();
