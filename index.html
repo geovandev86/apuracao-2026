@@ -276,6 +276,19 @@
   .mMapa .mapaSVG path { stroke: var(--cartao); cursor: inherit; }
   .mMapa .mapaSVG path.feito { stroke: #fff; }
   .mPainel .mapaLegenda { margin-top: .5em; font-size: .9em; justify-content: center; }
+
+  /* Governadores: quem foi decidido no 1º turno, quem vai para o 2º e quem ainda está indefinido. */
+  .gFaixa { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; background: var(--fundo); }
+  .gGrade { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; align-items: start; }
+  .gGrade h4 { margin: 0 0 4px; padding: 6px 10px; border-radius: 8px; font-size: 14px; color: #fff; }
+  .gGrade h4.eleito { background: #15803d; }
+  .gGrade h4.segundo { background: #b45309; }
+  .gGrade h4.indefinido { background: #475569; }
+  .gLinha { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; width: 100%; padding: 7px 4px; border: 0; border-top: 1px solid var(--linha); border-radius: 0; background: none; font-weight: 400; text-align: left; }
+  .gLinha:hover { background: var(--fundo); }
+  .gUF { width: 36px; padding: 3px 0; border-radius: 6px; background: var(--trilho); font-size: 12px; font-weight: 800; text-align: center; }
+  .gEstado { display: block; color: var(--suave); font-size: 12px; }
+  .selo.matem { border-color: var(--alerta); color: var(--alerta); }
 </style>
 </head>
 <body>
@@ -331,7 +344,11 @@
 
   <section class="larga">
     <div class="cab">
-      <h2>Mapa · presidente por estado</h2>
+      <h2>Mapa por estado</h2>
+      <select id="mapaModo" title="O que o mapa mostra">
+        <option value="pres">Presidente: quem lidera</option>
+        <option value="gov">Governador: eleito ou 2º turno</option>
+      </select>
       <span class="espaco"></span>
       <label class="meta"><input type="checkbox" id="mapaSoFeitos"> só estados com apuração concluída</label>
       <select id="mapaUF" title="Estado em destaque"></select>
@@ -341,6 +358,14 @@
       <div id="mapaDetalhe"></div>
     </div>
     <div id="mapaLegenda" class="mapaLegenda"></div>
+  </section>
+
+  <section class="larga">
+    <div class="cab">
+      <h2>Governadores · eleitos e 2º turno</h2>
+      <span class="meta">clique em um estado para vê-lo no mapa</span>
+    </div>
+    <div id="governadores"><p class="aviso">Carregando…</p></div>
   </section>
 
   <section class="larga">
@@ -379,7 +404,7 @@
 
 <script>
 // Trocar a cada publicação: é o que faz as páginas já abertas recarregarem sozinhas, sem F5.
-const VERSAO = '2026-10-04 19:50';
+const VERSAO = '2026-10-04 21:30';
 const CICLO = 'ele2026';
 // No computador (localhost) as consultas passam pelo server.js; publicada na internet, a página fala direto com o TSE.
 const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -426,6 +451,7 @@ const S = {
   presMun: ler('presMun', ''),
   estUF: ler('estUF', 'sp'),
   mapaUF: ler('mapaUF', ''),
+  mapaModo: ler('mapaModo', 'pres') === 'gov' ? 'gov' : 'pres',
   estCargo: ler('estCargo', '3'),
   intervalo: Number(ler('intervalo', '30')),
 };
@@ -614,6 +640,61 @@ async function carregarUFs() {
     <tbody>${linhas}</tbody></table>`;
 }
 
+// ---- Situação de uma disputa de presidente ou governador: decidida no 1º turno, 2º turno ou ainda indefinida.
+// Com a apuração encerrada vale a situação que o TSE grava em cada candidato ("Eleito", "2º turno").
+// Antes disso o TSE informa em "md" quando o resultado já está matematicamente definido: "e" = eleito, "s" = segundo turno.
+// Atenção: o campo "e" do candidato vem "s" também para quem vai ao 2º turno, por isso não serve para saber quem foi eleito.
+const COR_SITUACAO = { eleito: '#16a34a', segundo: '#f59e0b' };
+
+function situacaoDisputa(d) {
+  const lista = d ? candidatos(d) : [];
+  if (!lista.length || num(lista[0].vap) === 0) return { tipo: 'indefinido', lista };
+  const eleito = lista.find((c) => /^eleit/i.test(c.st || ''));
+  if (eleito) return { tipo: 'eleito', quem: [eleito], final: true, lista };
+  const segundo = lista.filter((c) => /2º turno/i.test(c.st || ''));
+  if (segundo.length >= 2) return { tipo: 'segundo', quem: segundo.slice(0, 2), final: true, lista };
+  if (d.md === 'e') return { tipo: 'eleito', quem: [lista[0]], final: false, lista };
+  if (d.md === 's') return { tipo: 'segundo', quem: lista.slice(0, 2), final: false, lista };
+  return { tipo: 'indefinido', lista };
+}
+
+function textoSituacao(g) {
+  const prefixo = g.final === false ? 'Matematicamente definido: ' : '';
+  if (g.tipo === 'eleito') return `${prefixo}${g.quem[0].nmu} (${g.quem[0].sg}) venceu no 1º turno com ${g.quem[0].pvap}%`;
+  if (g.tipo === 'segundo') return `${prefixo}2º turno entre ${g.quem[0].nmu} (${g.quem[0].pvap}%) e ${g.quem[1].nmu} (${g.quem[1].pvap}%)`;
+  return 'Ainda indefinido';
+}
+
+function renderGovernadores() {
+  const grupos = { eleito: [], segundo: [], indefinido: [] };
+  for (const uf of ESTADOS) {
+    const g = situacaoDisputa(dadosGov[uf]);
+    grupos[g.tipo].push({ uf, g });
+  }
+  const nome = (c) => `<b>${esc(c.nmu)}</b> <span class="partido">${esc(c.sg)}</span> ${esc(c.pvap)}%`;
+  const matem = (g) => (g.final === false ? ' <span class="selo matem">matematicamente</span>' : '');
+  const linha = (uf, corpo) => `<button type="button" class="gLinha" data-uf="${uf}"><span class="gUF">${uf.toUpperCase()}</span><span><span class="gEstado">${UFS[uf]}</span>${corpo}</span></button>`;
+  const bloco = (classe, titulo, itens, vazio) => `<div><h4 class="${classe}">${titulo} · ${itens.length}</h4>${itens.join('') || `<p class="nota">${vazio}</p>`}</div>`;
+  const eleitos = grupos.eleito.map(({ uf, g }) => linha(uf, nome(g.quem[0]) + matem(g)));
+  const segundos = grupos.segundo.map(({ uf, g }) => linha(uf, `${nome(g.quem[0])} <span class="partido">×</span> ${nome(g.quem[1])}${matem(g)}`));
+  const indefinidos = grupos.indefinido.map(({ uf, g }) => {
+    const [a, b] = g.lista;
+    const temVoto = a && num(a.vap) > 0;
+    return linha(uf, temVoto ? `${nome(a)}${b ? ` <span class="partido">×</span> ${nome(b)}` : ''} <span class="partido">· ${esc(dadosGov[uf].s?.pst)}% das seções</span>` : '<span class="partido">sem votos totalizados</span>');
+  });
+  const p = situacaoDisputa(dadosBR);
+  const presidente = p.tipo === 'eleito' ? `${nome(p.quem[0])} venceu no 1º turno${matem(p)}`
+    : p.tipo === 'segundo' ? `2º turno entre ${nome(p.quem[0])} e ${nome(p.quem[1])}${matem(p)}`
+    : 'ainda indefinido';
+  $('governadores').innerHTML = `<div class="gFaixa"><b>Presidente:</b> ${presidente}</div>
+    <div class="gGrade">
+      ${bloco('eleito', 'Decididos no 1º turno', eleitos, 'Nenhum estado até agora.')}
+      ${bloco('segundo', 'Vão para o 2º turno', segundos, 'Nenhum estado até agora.')}
+      ${bloco('indefinido', 'Ainda indefinidos', indefinidos, 'Todos os estados já estão definidos.')}
+    </div>
+    <p class="nota">"Matematicamente" quer dizer que os votos que faltam não mudam mais o resultado, mas o TSE ainda não encerrou a apuração naquele estado.</p>`;
+}
+
 // ---- Mapa do Brasil: contorno dos estados (IBGE) pintado com a cor de quem lidera para presidente em cada um.
 let MAPA = null;
 let mapaSoFeitos = false;
@@ -627,18 +708,28 @@ function estadoMapa(uf) {
   return { d, lista, pst, lider: lista[0] && num(lista[0].vap) > 0 ? lista[0] : null, feito: !!d && (d.tf === 's' || pst >= 100) };
 }
 
-function mapaSVG(selecionado, soFeitos) {
+// modo 'pres': cor de quem lidera para presidente. modo 'gov': verde = governador decidido no 1º turno, laranja = 2º turno.
+function mapaSVG(selecionado, soFeitos, modo = 'pres') {
   if (!MAPA) return '';
   const formas = [];
   let rotulos = '';
   for (const [uf, f] of Object.entries(MAPA.ufs)) {
-    const e = estadoMapa(uf);
-    const pinta = e.lider && (!soFeitos || e.feito);
-    // Quanto mais seções apuradas, mais forte a cor.
-    const estilo = pinta ? `fill:${corDe(e.lider)};fill-opacity:${(0.35 + 0.65 * e.pst / 100).toFixed(2)}` : '';
-    const dica = `${UFS[uf]}: ${e.lider ? `${e.lider.nmu} ${e.lider.pvap}%` : 'sem votos'} · ${e.d?.s?.pst ?? '0,00'}% das seções`;
-    formas.push({ ordem: uf === selecionado ? 2 : e.feito ? 1 : 0,
-      svg: `<path data-uf="${uf}" class="${e.feito ? 'feito' : ''}${uf === selecionado ? ' sel' : ''}" style="${estilo}" d="${f.d}"><title>${esc(dica)}</title></path>` });
+    let feito, estilo = '', dica;
+    if (modo === 'gov') {
+      const g = situacaoDisputa(dadosGov[uf]);
+      feito = dadosGov[uf]?.tf === 's';
+      // Cor cheia quando a apuração do estado acabou; mais clara quando só está matematicamente definido.
+      if (g.tipo !== 'indefinido' && (!soFeitos || feito)) estilo = `fill:${COR_SITUACAO[g.tipo]};fill-opacity:${g.final ? 1 : 0.55}`;
+      dica = `${UFS[uf]}: ${textoSituacao(g)}`;
+    } else {
+      const e = estadoMapa(uf);
+      feito = e.feito;
+      // Quanto mais seções apuradas, mais forte a cor.
+      if (e.lider && (!soFeitos || feito)) estilo = `fill:${corDe(e.lider)};fill-opacity:${(0.35 + 0.65 * e.pst / 100).toFixed(2)}`;
+      dica = `${UFS[uf]}: ${e.lider ? `${e.lider.nmu} ${e.lider.pvap}%` : 'sem votos'} · ${e.d?.s?.pst ?? '0,00'}% das seções`;
+    }
+    formas.push({ ordem: uf === selecionado ? 2 : feito ? 1 : 0,
+      svg: `<path data-uf="${uf}" class="${feito ? 'feito' : ''}${uf === selecionado ? ' sel' : ''}" style="${estilo}" d="${f.d}"><title>${esc(dica)}</title></path>` });
     const [dx, dy] = ROTULO_FORA[uf] ?? [0, 0];
     if (dx || dy) rotulos += `<line x1="${f.cx}" y1="${f.cy}" x2="${f.cx + dx - Math.sign(dx) * 20}" y2="${f.cy + dy}"/>`;
     rotulos += `<text x="${f.cx + dx}" y="${f.cy + dy}">${uf.toUpperCase()}</text>`;
@@ -648,7 +739,16 @@ function mapaSVG(selecionado, soFeitos) {
   return `<svg class="mapaSVG" viewBox="-12 -12 ${MAPA.largura + 110} ${MAPA.altura + 24}" role="img" aria-label="Mapa do Brasil com quem lidera para presidente em cada estado">${formas.map((f) => f.svg).join('')}${rotulos}</svg>`;
 }
 
-function mapaLegendaHTML(completa) {
+function mapaLegendaHTML(completa, modo = 'pres') {
+  if (modo === 'gov') {
+    const n = { eleito: 0, segundo: 0, indefinido: 0 };
+    for (const uf of Object.keys(MAPA.ufs)) n[situacaoDisputa(dadosGov[uf]).tipo] += 1;
+    const item = (cor, texto) => `<span><i class="ponto" style="--cor:${cor}"></i>${texto}</span>`;
+    return item(COR_SITUACAO.eleito, `<b>${n.eleito}</b> ${n.eleito === 1 ? 'estado decidido' : 'estados decididos'} no 1º turno`)
+      + item(COR_SITUACAO.segundo, `<b>${n.segundo}</b> ${n.segundo === 1 ? 'vai' : 'vão'} para o 2º turno`)
+      + item('var(--trilho)', `<b>${n.indefinido}</b> ainda ${n.indefinido === 1 ? 'indefinido' : 'indefinidos'}`)
+      + (completa ? '<span>Cor cheia = apuração encerrada · cor mais clara = matematicamente definido</span>' : '');
+  }
   const lideres = new Map();
   const feitos = [];
   for (const uf of Object.keys(MAPA.ufs)) {
@@ -677,7 +777,7 @@ function mapaDetalheHTML(uf) {
   const govPst = dadosGov[uf]?.s?.pst;
   return `<div class="rCab"><h3 style="flex:1;margin:0">${UFS[uf]}</h3><span class="rSit${e.feito ? ' final' : ''}">${situacao}</span></div>
     <h4>Presidente</h4>${e.lider ? linhas(e.lista, 3) : semVoto}
-    <h4>Governador${govPst ? ` · ${esc(govPst)}% das seções` : ''}</h4>${gov[0] && num(gov[0].vap) > 0 ? linhas(gov, 2) : semVoto}
+    <h4>Governador${govPst ? ` · ${esc(govPst)}% das seções` : ''}</h4>${gov[0] && num(gov[0].vap) > 0 ? linhas(gov, 2) + `<p class="nota" style="margin:0">${esc(textoSituacao(situacaoDisputa(dadosGov[uf])))}.</p>` : semVoto}
     <div><button type="button" data-abrir="${uf}">Ver ${UFS[uf]} completo no painel</button></div>`;
 }
 
@@ -685,9 +785,9 @@ function renderMapa() {
   if (!MAPA) return;
   if (!MAPA.ufs[S.mapaUF]) S.mapaUF = MAPA.ufs[S.estUF] ? S.estUF : 'sp';
   $('mapaUF').value = S.mapaUF;
-  $('mapa').innerHTML = mapaSVG(S.mapaUF, mapaSoFeitos);
+  $('mapa').innerHTML = mapaSVG(S.mapaUF, mapaSoFeitos, S.mapaModo);
   $('mapaDetalhe').innerHTML = mapaDetalheHTML(S.mapaUF);
-  $('mapaLegenda').innerHTML = mapaLegendaHTML(true);
+  $('mapaLegenda').innerHTML = mapaLegendaHTML(true, S.mapaModo);
 }
 
 async function carregarMapa() {
@@ -824,6 +924,7 @@ function mQuadros() {
   const t = TURNOS[S.turno];
   const quadros = [];
   if (MAPA) quadros.push({ titulo: 'Mapa · quem lidera em cada estado', html: `<div class="mMapa">${mapaSVG(null, false)}</div><div class="mapaLegenda">${mapaLegendaHTML(false)}</div>` });
+  if (MAPA) quadros.push({ titulo: 'Governadores · eleitos e 2º turno', html: `<div class="mMapa">${mapaSVG(null, false, 'gov')}</div><div class="mapaLegenda">${mapaLegendaHTML(false, 'gov')}</div>` });
   const siglas = Object.keys(UFS).filter((uf) => dadosUFs[uf]);
   for (let i = 0; i < siglas.length; i += 10) {
     const linhas = siglas.slice(i, i + 10).map((uf) => {
@@ -1052,17 +1153,18 @@ const DURACAO_AVISO = 12000;
 const dadosGov = {};
 const filaAvisos = [];
 let avisoRelogio = null;
+let primeiraConferencia = true;
 let avisados;
-try { avisados = new Set(JSON.parse(ler('avisados', '[]'))); } catch { avisados = new Set(); }
-
-const foiEleito = (c) => c.e === 's' || /^eleit/i.test(c.st || '');
+try { avisados = new Set(JSON.parse(ler('eleitosAvisados', '[]'))); } catch { avisados = new Set(); }
 
 function conferirEleitos(d, local, cargo, ele, fotoAbr) {
-  for (const c of candidatos(d).filter(foiEleito)) {
+  const g = situacaoDisputa(d);
+  if (g.tipo !== 'eleito') return;
+  for (const c of g.quem) {
     const chave = ele + '-' + c.sqcand;
     if (avisados.has(chave)) continue;
     avisados.add(chave);
-    filaAvisos.push({ c, local, cargo, ele, fotoAbr });
+    filaAvisos.push({ c, local, cargo, ele, fotoAbr, final: g.final });
     // Já deixa a foto carregada para o aviso não abrir com o quadro vazio.
     new Image().src = `${TSE}oficial/${CICLO}/${ele}/fotos/${fotoAbr}/${c.sqcand}.jpeg`;
   }
@@ -1080,7 +1182,7 @@ function proximoAviso() {
       <img class="foto" alt="" src="${TSE}oficial/${CICLO}/${a.ele}/fotos/${a.fotoAbr}/${esc(c.sqcand)}.jpeg" onerror="this.style.visibility='hidden'">
       <div class="aNome">${esc(c.nmu)}</div>
       <div class="aPartido">${esc(c.sg)}${c.vice ? ' · vice ' + esc(c.vice) : ''}</div>
-      <div class="aCargo">${a.cargo} · ${S.turno === '2' ? '2º' : '1º'} turno</div>
+      <div class="aCargo">${a.cargo} · ${S.turno === '2' ? '2º' : '1º'} turno${a.final ? '' : ' · matematicamente definido'}</div>
       <div class="aNums"><strong>${esc(c.pvap)}%</strong> dos votos válidos · ${milhar(c.vap)} votos</div>
       ${filaAvisos.length ? `<div class="aFila">Mais ${filaAvisos.length} ${filaAvisos.length === 1 ? 'aviso' : 'avisos'} em seguida</div>` : ''}
       <div class="aTempo"><i style="animation-duration:${DURACAO_AVISO}ms"></i></div>
@@ -1102,7 +1204,10 @@ async function carregarGovernadores() {
 
 function avisarEleitos() {
   if (dadosBR) conferirEleitos(dadosBR, 'O Brasil', 'Presidência da República', TURNOS[S.turno].fed, 'br');
-  gravar('avisados', JSON.stringify([...avisados]));
+  // Ao abrir a página com muitos resultados já definidos, não enfileira dezenas de avisos: eles estão na seção Governadores.
+  if (primeiraConferencia && filaAvisos.length > 3) filaAvisos.length = 0;
+  primeiraConferencia = false;
+  gravar('eleitosAvisados', JSON.stringify([...avisados]));
   if ($('aviso').hidden) proximoAviso();
 }
 
@@ -1112,6 +1217,7 @@ function atualizar() {
     if ($('ficha').open) mostrarFicha();
     if ($('resultado').open) abrirResultado();
     renderMapa();
+    renderGovernadores();
     renderMonitor();
     avisarEleitos();
   });
@@ -1152,6 +1258,17 @@ function montarControles() {
   $('mapaUF').innerHTML = ufs.filter(([cd]) => cd !== 'zz').map(([cd, nm]) => `<option value="${cd}">${nm}</option>`).join('');
   const destacar = (uf) => { S.mapaUF = uf; gravar('mapaUF', uf); renderMapa(); };
   $('mapaUF').addEventListener('change', (ev) => destacar(ev.target.value));
+  $('mapaModo').value = S.mapaModo;
+  $('mapaModo').addEventListener('change', (ev) => { S.mapaModo = ev.target.value; gravar('mapaModo', S.mapaModo); renderMapa(); });
+  $('governadores').addEventListener('click', (ev) => {
+    const uf = ev.target.closest('[data-uf]')?.dataset.uf;
+    if (!uf) return;
+    S.mapaModo = 'gov';
+    gravar('mapaModo', 'gov');
+    $('mapaModo').value = 'gov';
+    destacar(uf);
+    $('mapa').closest('section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   $('mapaSoFeitos').addEventListener('change', (ev) => { mapaSoFeitos = ev.target.checked; renderMapa(); });
   $('mapa').addEventListener('click', (ev) => {
     const uf = ev.target.closest('path[data-uf]')?.dataset.uf;
