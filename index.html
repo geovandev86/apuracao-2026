@@ -290,6 +290,12 @@
   .gEstado { display: block; color: var(--suave); font-size: 12px; }
   .mapaSVG path.fora { fill-opacity: .25; cursor: default; }
   .selo.matem { border-color: var(--alerta); color: var(--alerta); }
+
+  /* Exterior: urnas apuradas fora do Brasil, no total e por cidade. */
+  .extGrade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .extGrade { grid-template-columns: minmax(0, 1fr); } }
+  .extCidades { max-height: 680px; overflow: auto; }
+  .extCidades th { position: sticky; top: 0; background: var(--cartao); }
 </style>
 </head>
 <body>
@@ -376,6 +382,16 @@
     </div>
     <div id="ufs" class="rolagem"><p class="aviso">Carregando…</p></div>
   </section>
+
+  <section class="larga">
+    <div class="cab">
+      <h2>Exterior · urnas fora do Brasil</h2>
+      <span class="espaco"></span>
+      <label class="meta"><input type="checkbox" id="extSoApuradas" checked> só cidades com urnas apuradas</label>
+      <input id="extBusca" type="search" placeholder="Buscar cidade">
+    </div>
+    <div id="exterior"><p class="aviso">Carregando…</p></div>
+  </section>
 </main>
 
 <div id="monitor" hidden>
@@ -405,7 +421,7 @@
 
 <script>
 // Trocar a cada publicação: é o que faz as páginas já abertas recarregarem sozinhas, sem F5.
-const VERSAO = '2026-10-25 13:50';
+const VERSAO = '2026-10-25 14:45';
 const CICLO = 'ele2026';
 // No computador (localhost) as consultas passam pelo server.js; publicada na internet, a página fala direto com o TSE.
 const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -458,6 +474,10 @@ const S = {
 };
 let falta = 0;
 let municipios = null;
+async function obterMunicipios() {
+  municipios ??= await getJSON(`${TSE}oficial/${CICLO}/${TURNOS[1].fed}/config/mun-e${zeros(TURNOS[1].fed, 6)}-cm.json`);
+  return municipios;
+}
 let dadosEstado = null;
 
 function urlDados(ele, abr, cargo, mun) {
@@ -833,6 +853,73 @@ async function carregarMapa() {
   }
 }
 
+// ---- Exterior: o arquivo de abrangência do TSE diz quantas urnas cada cidade já apurou;
+// o resultado de cada cidade só é buscado de novo quando o número de urnas apuradas dela muda.
+const dadosExt = { turno: null, ab: null, quando: 0, cidades: {} };
+
+async function carregarExterior() {
+  const ele = TURNOS[S.turno].fed;
+  if (dadosExt.turno !== S.turno) Object.assign(dadosExt, { turno: S.turno, ab: null, quando: 0, cidades: {} });
+  // O arquivo das cidades é grande: no máximo uma consulta por minuto.
+  if (dadosExt.ab && Date.now() - dadosExt.quando < 60000) return;
+  try {
+    const [ab] = await Promise.all([getJSON(`${TSE}oficial/${CICLO}/${ele}/dados/zz/zz-e${zeros(ele, 6)}-ab.json`), obterMunicipios()]);
+    Object.assign(dadosExt, { ab, quando: Date.now() });
+    const pendentes = ab.abr.filter((a) => a.tpabr === 'mun' && num(a.s?.st) > 0 && dadosExt.cidades[a.cdabr]?.st !== a.s.st);
+    const trabalhar = async () => {
+      for (let a = pendentes.shift(); a; a = pendentes.shift()) {
+        try { dadosExt.cidades[a.cdabr] = { st: a.s.st, d: await getJSON(urlDados(ele, 'zz', 1, a.cdabr)) }; } catch {}
+      }
+    };
+    await Promise.all(Array.from({ length: 8 }, trabalhar));
+  } catch {}
+}
+
+function renderExterior() {
+  const d = dadosUFs.zz;
+  if (!d) { $('exterior').innerHTML = '<p class="aviso">O TSE ainda não publicou os dados do exterior.</p>'; return; }
+  const ele = TURNOS[S.turno].fed;
+  const nomes = Object.fromEntries((municipios?.abr.find((a) => a.cd === 'zz')?.mu ?? []).map((m) => [m.cd, m.nm]));
+  // "ABU DHABI" vira "Abu Dhabi"
+  const nomeBonito = (s) => s.toLowerCase().replace(/(^|[\s'-])\S/g, (x) => x.toUpperCase());
+  let cidades = (dadosExt.ab?.abr ?? []).filter((a) => a.tpabr === 'mun').map((a) => ({
+    cd: a.cdabr, nome: nomeBonito(nomes[a.cdabr] ?? a.cdabr), st: num(a.s?.st), ts: num(a.s?.ts), pst: a.s?.pst, te: num(a.e?.te), d: dadosExt.cidades[a.cdabr]?.d,
+  }));
+  const total = cidades.length;
+  const comUrnas = cidades.filter((c) => c.st > 0).length;
+  if ($('extSoApuradas').checked) cidades = cidades.filter((c) => c.st > 0);
+  const busca = $('extBusca').value.trim().toLowerCase();
+  if (busca) cidades = cidades.filter((c) => c.nome.toLowerCase().includes(busca));
+  cidades.sort((a, b) => b.te - a.te);
+
+  const celula = (c, temVoto, classe) => (temVoto && c ? `<i class="ponto${naBandeira(c) ? ' bandeira' : ''}" style="--cor:${corDe(c)}"></i><span class="${classe}">${esc(c.nmu)}</span> ${esc(c.pvap)}%` : '—');
+  const linhas = cidades.slice(0, 80).map((c) => {
+    const [a, b] = c.d ? candidatos(c.d) : [];
+    const temVoto = a && num(a.vap) > 0;
+    return `<tr data-mun="${esc(c.cd)}">
+      <td><strong>${esc(c.nome)}</strong></td>
+      <td><span class="mini"><i style="width:${num(c.pst)}%"></i></span>${c.st} de ${c.ts}</td>
+      <td>${celula(a, temVoto, 'c1')}</td>
+      <td>${celula(b, temVoto, 'c2')}</td>
+      <td>${milhar(c.te)}</td>
+    </tr>`;
+  }).join('');
+  const vazio = !dadosExt.ab ? 'Carregando as cidades…'
+    : $('extSoApuradas').checked && !comUrnas ? 'Nenhuma urna do exterior foi apurada ainda. Desmarque "só cidades com urnas apuradas" para ver todas as cidades.'
+    : 'Nenhuma cidade encontrada.';
+  const tabela = linhas
+    ? `<table><thead><tr><th>Cidade</th><th>Urnas apuradas</th><th>1º colocado</th><th>2º colocado</th><th>Eleitores</th></tr></thead><tbody>${linhas}</tbody></table>`
+      + (cidades.length > 80 ? `<p class="nota">Mostrando as 80 cidades com mais eleitores de ${cidades.length}. Use a busca para achar outras.</p>` : '')
+    : `<p class="aviso">${vazio}</p>`;
+
+  $('exterior').innerHTML = `<div class="gFaixa"><b>${milhar(d.s?.st)}</b> de <b>${milhar(d.s?.ts)}</b> urnas apuradas no exterior (${esc(d.s?.pst)}%)
+      · ${comUrnas} de ${total} cidades com urnas apuradas · ${milhar(d.e?.te)} eleitores aptos fora do Brasil</div>
+    <div class="extGrade">
+      <div>${listaHTML(d, { origem: 'ext', ele, fotoAbr: 'br', majoritario: true, semVice: true })}</div>
+      <div><div class="rolagem extCidades">${tabela}</div><p class="nota">Clique em uma cidade para ver o resultado dela no quadro do presidente, no topo da página.</p></div>
+    </div>`;
+}
+
 function idade(nascimento) {
   const [dia, mes, ano] = String(nascimento || '').split('/').map(Number);
   if (!ano) return '';
@@ -848,7 +935,7 @@ function fichaHTML() {
   const op = INFO[ficha.origem];
   const foto = (sq) => `${TSE}oficial/${CICLO}/${op.ele}/fotos/${op.fotoAbr}/${esc(sq)}.jpeg`;
   const linha = (rotulo, valor) => (valor ? `<div><dt>${rotulo}</dt><dd>${valor}</dd></div>` : '');
-  const local = ficha.origem === 'est' ? UFS[S.estUF]
+  const local = ficha.origem === 'est' ? UFS[S.estUF] : ficha.origem === 'ext' ? 'Exterior'
     : $('presAbr').selectedOptions[0].text + (S.presMun ? ' · ' + $('presMun').selectedOptions[0].text : '');
   const anos = idade(c.dt);
   const chapa = (c.vs ?? []).map((v) => `<div class="fVice">
@@ -912,7 +999,7 @@ async function preencherMunicipios() {
   const sel = $('presMun');
   if (S.presAbr === 'br') { sel.hidden = true; return; }
   try {
-    municipios ??= await getJSON(`${TSE}oficial/${CICLO}/${TURNOS[1].fed}/config/mun-e${zeros(TURNOS[1].fed, 6)}-cm.json`);
+    await obterMunicipios();
     const lista = (municipios.abr.find((a) => a.cd === S.presAbr)?.mu ?? []).slice().sort((a, b) => a.nm.localeCompare(b.nm, 'pt-BR'));
     const todo = S.presAbr === 'zz' ? 'Todo o exterior' : 'Todo o estado';
     sel.innerHTML = `<option value="">${todo}</option>` + lista.map((m) => `<option value="${esc(m.cd)}">${esc(m.nm)}</option>`).join('');
@@ -958,6 +1045,7 @@ function mQuadros() {
   const t = TURNOS[S.turno];
   const quadros = [];
   if (MAPA) quadros.push({ titulo: 'Mapa · quem lidera em cada estado', html: `<div class="mMapa">${mapaSVG(null, false)}</div><div class="mapaLegenda">${mapaLegendaHTML(false)}</div>` });
+  if (dadosUFs.zz) quadros.push({ titulo: 'Exterior · votos fora do Brasil', html: mCargoHTML(dadosUFs.zz, t.fed, 'br', S.turno === '2' ? 2 : 4, true) });
   if (MAPA) quadros.push({ titulo: 'Governadores · eleitos e 2º turno', html: `<div class="mMapa">${mapaSVG(null, false, 'gov')}</div><div class="mapaLegenda">${mapaLegendaHTML(false, 'gov')}</div>` });
   const siglas = Object.keys(UFS).filter((uf) => dadosUFs[uf]);
   for (let i = 0; i < siglas.length; i += 10) {
@@ -1249,11 +1337,12 @@ function avisarEleitos() {
 
 function atualizar() {
   falta = S.intervalo;
-  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs(), carregarMonitor(), carregarGovernadores()]).then(() => {
+  return Promise.all([carregarPresidente(), carregarEstado(), carregarUFs(), carregarMonitor(), carregarGovernadores(), carregarExterior()]).then(() => {
     if ($('ficha').open) mostrarFicha();
     if ($('resultado').open) abrirResultado();
     renderMapa();
     renderGovernadores();
+    renderExterior();
     renderMonitor();
     avisarEleitos();
   });
@@ -1282,6 +1371,23 @@ function montarControles() {
   aoMudar('estCargo', 'estCargo', () => { $('busca').hidden = Number(S.estCargo) < 6; $('busca').value = ''; carregarEstado(); });
   aoMudar('intervalo', 'intervalo', () => { S.intervalo = Number(S.intervalo); falta = S.intervalo; });
   $('busca').addEventListener('input', mostrarEstado);
+  $('extSoApuradas').addEventListener('change', renderExterior);
+  $('extBusca').addEventListener('input', renderExterior);
+  $('exterior').addEventListener('click', async (ev) => {
+    const sq = ev.target.closest('.cand')?.dataset.sq;
+    if (sq) { ficha = { origem: 'ext', sq }; mostrarFicha(); return; }
+    const mun = ev.target.closest('tr[data-mun]')?.dataset.mun;
+    if (!mun) return;
+    // Mostra a cidade escolhida no quadro do presidente (abrangência Exterior + cidade).
+    S.presAbr = 'zz';
+    S.presMun = mun;
+    gravar('presAbr', 'zz');
+    gravar('presMun', mun);
+    $('presAbr').value = 'zz';
+    await preencherMunicipios();
+    carregarPresidente();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
   $('agora').addEventListener('click', atualizar);
   $('abrirMonitor').addEventListener('click', () => abrirMonitor(true));
   $('abrirResultado').addEventListener('click', abrirResultado);
