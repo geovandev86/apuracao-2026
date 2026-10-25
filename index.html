@@ -288,6 +288,7 @@
   .gLinha:hover { background: var(--fundo); }
   .gUF { width: 36px; padding: 3px 0; border-radius: 6px; background: var(--trilho); font-size: 12px; font-weight: 800; text-align: center; }
   .gEstado { display: block; color: var(--suave); font-size: 12px; }
+  .mapaSVG path.fora { fill-opacity: .25; cursor: default; }
   .selo.matem { border-color: var(--alerta); color: var(--alerta); }
 </style>
 </head>
@@ -362,7 +363,7 @@
 
   <section class="larga">
     <div class="cab">
-      <h2>Governadores · eleitos e 2º turno</h2>
+      <h2 id="govTitulo">Governadores · eleitos e 2º turno</h2>
       <span class="meta">clique em um estado para vê-lo no mapa</span>
     </div>
     <div id="governadores"><p class="aviso">Carregando…</p></div>
@@ -404,7 +405,7 @@
 
 <script>
 // Trocar a cada publicação: é o que faz as páginas já abertas recarregarem sozinhas, sem F5.
-const VERSAO = '2026-10-04 21:30';
+const VERSAO = '2026-10-25 13:50';
 const CICLO = 'ele2026';
 // No computador (localhost) as consultas passam pelo server.js; publicada na internet, a página fala direto com o TSE.
 const LOCAL = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -446,7 +447,7 @@ function gravar(chave, valor) {
 }
 
 const S = {
-  turno: ler('turno', '1'),
+  turno: ler('turnoEscolhido', new Date() >= new Date('2026-10-25T00:00:00-03:00') ? '2' : '1'),
   presAbr: ler('presAbr', 'br'),
   presMun: ler('presMun', ''),
   estUF: ler('estUF', 'sp'),
@@ -640,6 +641,33 @@ async function carregarUFs() {
     <tbody>${linhas}</tbody></table>`;
 }
 
+// ---- Estados com 2º turno para governador: lista oficial do TSE (configuração das eleições), com cópia de segurança.
+let ESTADOS_2T = ['ac', 'am', 'df', 'es', 'rn', 'to'];
+const estadosDoTurno = () => (S.turno === '2' ? ESTADOS_2T : ESTADOS);
+
+async function carregarEstados2T() {
+  try {
+    const cfg = await getJSON(`${TSE}oficial/comum/config/ele-c.json`);
+    const eleicao = cfg.pl.flatMap((p) => p.e).find((e) => e.cd === TURNOS[2].est);
+    const lista = (eleicao?.abr ?? []).map((a) => a.cd).filter((uf) => UFS[uf] && uf !== 'zz');
+    if (lista.length) ESTADOS_2T = lista.sort();
+  } catch {}
+}
+
+// No 2º turno só há presidente e governador, e governador só nos estados da lista acima.
+function ajustarAoTurno() {
+  const estados = estadosDoTurno();
+  $('estUF').innerHTML = estados.map((cd) => `<option value="${cd}">${UFS[cd]}</option>`).join('');
+  if (!estados.includes(S.estUF)) S.estUF = estados.includes('sp') ? 'sp' : estados[0];
+  $('estUF').value = S.estUF;
+  const cargos = S.turno === '2' ? { 3: CARGOS[3] } : CARGOS;
+  $('estCargo').innerHTML = Object.entries(cargos).map(([cd, nm]) => `<option value="${cd}">${nm}</option>`).join('');
+  if (!cargos[S.estCargo]) S.estCargo = '3';
+  $('estCargo').value = S.estCargo;
+  $('busca').hidden = Number(S.estCargo) < 6;
+  $('govTitulo').textContent = S.turno === '2' ? `Governadores · 2º turno em ${ESTADOS_2T.length} estados` : 'Governadores · eleitos e 2º turno';
+}
+
 // ---- Situação de uma disputa de presidente ou governador: decidida no 1º turno, 2º turno ou ainda indefinida.
 // Com a apuração encerrada vale a situação que o TSE grava em cada candidato ("Eleito", "2º turno").
 // Antes disso o TSE informa em "md" quando o resultado já está matematicamente definido: "e" = eleito, "s" = segundo turno.
@@ -660,14 +688,14 @@ function situacaoDisputa(d) {
 
 function textoSituacao(g) {
   const prefixo = g.final === false ? 'Matematicamente definido: ' : '';
-  if (g.tipo === 'eleito') return `${prefixo}${g.quem[0].nmu} (${g.quem[0].sg}) venceu no 1º turno com ${g.quem[0].pvap}%`;
+  if (g.tipo === 'eleito') return `${prefixo}${g.quem[0].nmu} (${g.quem[0].sg}) venceu no ${S.turno === '2' ? '2º' : '1º'} turno com ${g.quem[0].pvap}%`;
   if (g.tipo === 'segundo') return `${prefixo}2º turno entre ${g.quem[0].nmu} (${g.quem[0].pvap}%) e ${g.quem[1].nmu} (${g.quem[1].pvap}%)`;
   return 'Ainda indefinido';
 }
 
 function renderGovernadores() {
   const grupos = { eleito: [], segundo: [], indefinido: [] };
-  for (const uf of ESTADOS) {
+  for (const uf of estadosDoTurno()) {
     const g = situacaoDisputa(dadosGov[uf]);
     grupos[g.tipo].push({ uf, g });
   }
@@ -683,14 +711,14 @@ function renderGovernadores() {
     return linha(uf, temVoto ? `${nome(a)}${b ? ` <span class="partido">×</span> ${nome(b)}` : ''} <span class="partido">· ${esc(dadosGov[uf].s?.pst)}% das seções</span>` : '<span class="partido">sem votos totalizados</span>');
   });
   const p = situacaoDisputa(dadosBR);
-  const presidente = p.tipo === 'eleito' ? `${nome(p.quem[0])} venceu no 1º turno${matem(p)}`
+  const presidente = p.tipo === 'eleito' ? `${nome(p.quem[0])} venceu no ${S.turno === '2' ? '2º' : '1º'} turno${matem(p)}`
     : p.tipo === 'segundo' ? `2º turno entre ${nome(p.quem[0])} e ${nome(p.quem[1])}${matem(p)}`
     : 'ainda indefinido';
   $('governadores').innerHTML = `<div class="gFaixa"><b>Presidente:</b> ${presidente}</div>
     <div class="gGrade">
-      ${bloco('eleito', 'Decididos no 1º turno', eleitos, 'Nenhum estado até agora.')}
-      ${bloco('segundo', 'Vão para o 2º turno', segundos, 'Nenhum estado até agora.')}
-      ${bloco('indefinido', 'Ainda indefinidos', indefinidos, 'Todos os estados já estão definidos.')}
+      ${bloco('eleito', S.turno === '2' ? 'Eleitos no 2º turno' : 'Decididos no 1º turno', eleitos, 'Nenhum estado até agora.')}
+      ${S.turno === '2' ? '' : bloco('segundo', 'Vão para o 2º turno', segundos, 'Nenhum estado até agora.')}
+      ${bloco('indefinido', S.turno === '2' ? 'Em apuração' : 'Ainda indefinidos', indefinidos, 'Todos os estados já estão definidos.')}
     </div>
     <p class="nota">"Matematicamente" quer dizer que os votos que faltam não mudam mais o resultado, mas o TSE ainda não encerrou a apuração naquele estado.</p>`;
 }
@@ -714,8 +742,12 @@ function mapaSVG(selecionado, soFeitos, modo = 'pres') {
   const formas = [];
   let rotulos = '';
   for (const [uf, f] of Object.entries(MAPA.ufs)) {
-    let feito, estilo = '', dica;
-    if (modo === 'gov') {
+    let feito, estilo = '', dica, fora = false;
+    if (modo === 'gov' && !estadosDoTurno().includes(uf)) {
+      feito = false;
+      fora = true;
+      dica = `${UFS[uf]}: sem 2º turno para governador`;
+    } else if (modo === 'gov') {
       const g = situacaoDisputa(dadosGov[uf]);
       feito = dadosGov[uf]?.tf === 's';
       // Cor cheia quando a apuração do estado acabou; mais clara quando só está matematicamente definido.
@@ -729,7 +761,7 @@ function mapaSVG(selecionado, soFeitos, modo = 'pres') {
       dica = `${UFS[uf]}: ${e.lider ? `${e.lider.nmu} ${e.lider.pvap}%` : 'sem votos'} · ${e.d?.s?.pst ?? '0,00'}% das seções`;
     }
     formas.push({ ordem: uf === selecionado ? 2 : feito ? 1 : 0,
-      svg: `<path data-uf="${uf}" class="${feito ? 'feito' : ''}${uf === selecionado ? ' sel' : ''}" style="${estilo}" d="${f.d}"><title>${esc(dica)}</title></path>` });
+      svg: `<path data-uf="${uf}" class="${feito ? 'feito' : ''}${fora ? ' fora' : ''}${uf === selecionado ? ' sel' : ''}" style="${estilo}" d="${f.d}"><title>${esc(dica)}</title></path>` });
     const [dx, dy] = ROTULO_FORA[uf] ?? [0, 0];
     if (dx || dy) rotulos += `<line x1="${f.cx}" y1="${f.cy}" x2="${f.cx + dx - Math.sign(dx) * 20}" y2="${f.cy + dy}"/>`;
     rotulos += `<text x="${f.cx + dx}" y="${f.cy + dy}">${uf.toUpperCase()}</text>`;
@@ -742,10 +774,12 @@ function mapaSVG(selecionado, soFeitos, modo = 'pres') {
 function mapaLegendaHTML(completa, modo = 'pres') {
   if (modo === 'gov') {
     const n = { eleito: 0, segundo: 0, indefinido: 0 };
-    for (const uf of Object.keys(MAPA.ufs)) n[situacaoDisputa(dadosGov[uf]).tipo] += 1;
+    for (const uf of estadosDoTurno()) n[situacaoDisputa(dadosGov[uf]).tipo] += 1;
     const item = (cor, texto) => `<span><i class="ponto" style="--cor:${cor}"></i>${texto}</span>`;
-    return item(COR_SITUACAO.eleito, `<b>${n.eleito}</b> ${n.eleito === 1 ? 'estado decidido' : 'estados decididos'} no 1º turno`)
-      + item(COR_SITUACAO.segundo, `<b>${n.segundo}</b> ${n.segundo === 1 ? 'vai' : 'vão'} para o 2º turno`)
+    const turno2 = S.turno === '2';
+    return item(COR_SITUACAO.eleito, `<b>${n.eleito}</b> ${n.eleito === 1 ? 'estado decidido' : 'estados decididos'} no ${turno2 ? '2º' : '1º'} turno`)
+      + (turno2 ? '<span>Os outros estados não têm 2º turno para governador e aparecem apagados</span>'
+        : item(COR_SITUACAO.segundo, `<b>${n.segundo}</b> ${n.segundo === 1 ? 'vai' : 'vão'} para o 2º turno`))
       + item('var(--trilho)', `<b>${n.indefinido}</b> ainda ${n.indefinido === 1 ? 'indefinido' : 'indefinidos'}`)
       + (completa ? '<span>Cor cheia = apuração encerrada · cor mais clara = matematicamente definido</span>' : '');
   }
@@ -777,7 +811,7 @@ function mapaDetalheHTML(uf) {
   const govPst = dadosGov[uf]?.s?.pst;
   return `<div class="rCab"><h3 style="flex:1;margin:0">${UFS[uf]}</h3><span class="rSit${e.feito ? ' final' : ''}">${situacao}</span></div>
     <h4>Presidente</h4>${e.lider ? linhas(e.lista, 3) : semVoto}
-    <h4>Governador${govPst ? ` · ${esc(govPst)}% das seções` : ''}</h4>${gov[0] && num(gov[0].vap) > 0 ? linhas(gov, 2) + `<p class="nota" style="margin:0">${esc(textoSituacao(situacaoDisputa(dadosGov[uf])))}.</p>` : semVoto}
+    <h4>Governador${govPst ? ` · ${esc(govPst)}% das seções` : ''}</h4>${!estadosDoTurno().includes(uf) ? '<p class="nota" style="margin:0">Este estado não tem 2º turno para governador.</p>' : gov[0] && num(gov[0].vap) > 0 ? linhas(gov, 2) + `<p class="nota" style="margin:0">${esc(textoSituacao(situacaoDisputa(dadosGov[uf])))}.</p>` : semVoto}
     <div><button type="button" data-abrir="${uf}">Ver ${UFS[uf]} completo no painel</button></div>`;
 }
 
@@ -1030,7 +1064,7 @@ function resumir(d, uf) {
 
 async function carregarResultado() {
   const uf = S.estUF;
-  const cargos = [3, 5, 6, uf === 'df' ? 8 : 7];
+  const cargos = S.turno === '2' ? [3] : [3, 5, 6, uf === 'df' ? 8 : 7];
   const respostas = await Promise.allSettled(cargos.map((cargo) => getJSON(urlDados(TURNOS[S.turno].est, uf, cargo))));
   dadosRes = { uf, lista: respostas.map((r) => (r.status === 'fulfilled' ? resumir(r.value, uf) : null)) };
 }
@@ -1115,8 +1149,8 @@ function mostrarResultado() {
   if (resAba === 'geral') {
     const pronto = dadosGeral.turno === S.turno && dadosGeral.cargos;
     corpo = resCartao(resumir(dadosBR, 'br'), 'Presidente · Brasil', t.fed, 'br', 1)
-      + resCartaoGeral(ESTADOS.map((uf) => resumir(dadosGov[uf], uf)), 'Governador · todos os estados', t.est, 3)
-      + (pronto
+      + resCartaoGeral(estadosDoTurno().map((uf) => resumir(dadosGov[uf], uf)), S.turno === '2' ? 'Governador · estados com 2º turno' : 'Governador · todos os estados', t.est, 3)
+      + (S.turno === '2' ? '' : pronto
         ? resCartaoGeral(dadosGeral.cargos[5], 'Senador · todos os estados', t.est, 5)
           + resCartaoGeral(dadosGeral.cargos[6], 'Deputado Federal · todos os estados', t.est, 6)
           + resCartaoGeral(dadosGeral.cargos[7], 'Deputado Estadual e Distrital · todos os estados', t.est, 7)
@@ -1124,7 +1158,7 @@ function mostrarResultado() {
   } else {
     const uf = S.estUF;
     const nomes = ['Governador', 'Senador', 'Deputado Federal', uf === 'df' ? 'Deputado Distrital' : 'Deputado Estadual'];
-    const opcoes = ESTADOS.map((cd) => `<option value="${cd}"${cd === uf ? ' selected' : ''}>${UFS[cd]}</option>`).join('');
+    const opcoes = estadosDoTurno().map((cd) => `<option value="${cd}"${cd === uf ? ' selected' : ''}>${UFS[cd]}</option>`).join('');
     corpo = `<label class="rUF">Estado <select id="resUF">${opcoes}</select></label>`
       + resCartao(resumir(dadosUFs[uf], uf), `Presidente · ${UFS[uf]}`, t.fed, 'br', 1)
       + (dadosRes.uf === uf
@@ -1143,7 +1177,7 @@ function mostrarResultado() {
 
 async function abrirResultado() {
   mostrarResultado();
-  await (resAba === 'geral' ? carregarGeral() : carregarResultado());
+  await (resAba === 'estado' ? carregarResultado() : S.turno === '2' ? null : carregarGeral());
   if ($('resultado').open) mostrarResultado();
 }
 
@@ -1194,7 +1228,9 @@ function proximoAviso() {
 // Busca o governador de todos os estados só para saber quem já foi eleito.
 async function carregarGovernadores() {
   const ele = TURNOS[S.turno].est;
-  const siglas = Object.keys(UFS).filter((uf) => uf !== 'zz');
+  const siglas = estadosDoTurno();
+  // Ao trocar de turno, os estados que não estão na disputa não podem ficar com dados do outro turno.
+  for (const uf of ESTADOS) if (!siglas.includes(uf)) dadosGov[uf] = null;
   const respostas = await Promise.allSettled(siglas.map((uf) => getJSON(urlDados(ele, uf, 3))));
   siglas.forEach((uf, i) => {
     dadosGov[uf] = respostas[i].status === 'fulfilled' ? respostas[i].value : null;
@@ -1226,26 +1262,20 @@ function atualizar() {
 function montarControles() {
   const ufs = Object.entries(UFS);
   $('presAbr').innerHTML = '<option value="br">Brasil</option>' + ufs.map(([cd, nm]) => `<option value="${cd}">${nm}</option>`).join('');
-  $('estUF').innerHTML = ufs.filter(([cd]) => cd !== 'zz').map(([cd, nm]) => `<option value="${cd}">${nm}</option>`).join('');
-  $('estCargo').innerHTML = Object.entries(CARGOS).map(([cd, nm]) => `<option value="${cd}">${nm}</option>`).join('');
-  if (!UFS[S.estUF] || S.estUF === 'zz') S.estUF = 'sp';
   if (S.presAbr !== 'br' && !UFS[S.presAbr]) S.presAbr = 'br';
-  if (!CARGOS[S.estCargo]) S.estCargo = '3';
   if (!TURNOS[S.turno]) S.turno = '1';
   $('turno').value = S.turno;
   $('presAbr').value = S.presAbr;
-  $('estUF').value = S.estUF;
-  $('estCargo').value = S.estCargo;
+  ajustarAoTurno();
   $('intervalo').value = String(S.intervalo);
   if (!$('intervalo').value) { S.intervalo = 30; $('intervalo').value = '30'; }
-  $('busca').hidden = Number(S.estCargo) < 6;
 
   const aoMudar = (id, chave, depois) => $(id).addEventListener('change', (ev) => {
     S[chave] = ev.target.value;
     gravar(chave, S[chave]);
     depois();
   });
-  aoMudar('turno', 'turno', atualizar);
+  aoMudar('turno', 'turno', () => { gravar('turnoEscolhido', S.turno); ajustarAoTurno(); atualizar(); });
   aoMudar('presAbr', 'presAbr', async () => { S.presMun = ''; gravar('presMun', ''); await preencherMunicipios(); carregarPresidente(); });
   aoMudar('presMun', 'presMun', carregarPresidente);
   aoMudar('estUF', 'estUF', carregarEstado);
@@ -1355,7 +1385,7 @@ async function conferirVersao() {
 }
 
 montarControles();
-preencherMunicipios().then(atualizar);
+Promise.all([preencherMunicipios(), carregarEstados2T()]).then(() => { ajustarAoTurno(); atualizar(); });
 carregarMapa();
 setInterval(conferirVersao, 60000);
 if (location.hash === '#monitor') abrirMonitor(false);
